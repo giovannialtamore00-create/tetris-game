@@ -184,6 +184,8 @@ The game ends when **either**:
 - at most 1 player is still alive; or
 - the 10-minute game clock runs out.
 
+**Game clock halving.** Every time a player is out, whether knocked out (no blocks left) or timed out, the time left on the game clock is halved: with 6:00 left, it drops to 3:00. Two players going out in the same move halve it twice. This applies in every mode.
+
 The player with the **most points** wins, including players who are no longer alive. Ties are broken among the tied players, each step narrowing the group before the next:
 
 1. A living player beats a player who is not alive (eliminated and timed-out players rank equally here).
@@ -216,7 +218,7 @@ The server is authoritative. Clients send intents; the server validates, applies
 
 ### Easy bots (`src/core/bot.js`)
 
-- **Behaviour.** An easy bot plays a uniformly random legal placement (each distinct placement counted once). It uses a shuffle offer as soon as it has one. On its live turn it "thinks" for 1.5–2.5 s before moving, well inside the AFK timer, so humans can follow the game.
+- **Behaviour.** An easy bot plays a uniformly random legal placement (each distinct placement counted once). It uses a shuffle offer as soon as it has one. On its live turn it "thinks" for 3–4 s before moving, well inside the AFK timer, so humans can follow the game.
 - **Online.** The **host** (the first human seat, normally the room's creator; if they leave the lobby, the next human) can add an easy bot to the first free seat, or remove one, before the game starts. Bots count towards the four seats, so a host can start at once with three bots. The server plays the bots with the room's timers. A lobby is removed as soon as no humans are left in it, even with bots seated. Bots are listed as bots in `seats` (`bot: true`) and are always shown as connected.
 - **Locally.** The menu's **Play vs 3 easy bots** starts a local game where you play South and the bots play in the browser. Pausing the local game pauses the bots too.
 - Bots follow every rule like human players, including scoring, the pause between turns and the clocks.
@@ -361,7 +363,7 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 
 **Shuffle offer.** Whenever a living player has no legal move, they get a shuffle offer at once; this is checked after every placement and shuffle. They can use it immediately. If the new hand still has no legal move, a fresh offer is available at once. As in turn-based mode, an unused offer disappears when the player makes a legal move.
 
-**Bots.** An easy bot acts when its cooldown is over plus a 1.5–2.5 s think: it places a random legal piece, or shuffles if it has none and an offer is available.
+**Bots.** An easy bot acts when its cooldown is over plus a 3–4 s think: it places a random legal piece, or shuffles if it has none and an offer is available.
 
 **Implementation (real-time).** `mode: 'realtime'` in the game config. The game runs in phase `realtime` with no active seat; each player has `cooldownUntil`. Moves are rejected with `coolingDown` before it and `notAlive` for players who are out. The only deadline is the game clock. New events: `cooldown { seat, until }` and `shuffleOffered { seat }`. The room lobby sends the chosen `mode`, and the host changes it with `setMode { mode }`.
 
@@ -387,3 +389,29 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 
 - A **📖 Rules** tab on the left edge of every screen opens an informal rulebook: the goal, roots and placing, pieces, lines and toughness, cutting branches, grey clusters, points, shuffles, and the differences between the two modes.
 - Board cells no longer show HP numbers; toughness is shown by shading only (darker = tougher).
+
+---
+
+# Part 5 — Rainbow mode
+
+## 25. Rainbow mode
+
+An **opt-in option** chosen at game start: by the host in the room lobby (on or off), or with the "Rainbow mode" tick box on the menu for local games. It combines with either game mode (turn-based or real-time). **All other rules apply unchanged.**
+
+**Piece pool.** Rainbow mode uses its own pool (`src/core/pieceSet.js`):
+
+| Pool | Bag (each once per cycle) | Special (shuffles; turn-based line-clear reward) |
+|---|---|---|
+| Classic (rainbow mode off) | the 7 tetrominoes | 1×1, 1×2, small L |
+| Rainbow mode | the 7 tetrominoes + **1×3**, 1×2, small L | **1×1** only |
+
+**Rainbow pieces.** In rainbow mode every dealt piece (from the bag, a shuffle or a reward) has a **5% chance** of being a rainbow piece, rolled with the player's own hidden generator. It is shown with a rainbow outline in the hand.
+
+- **Placing.** A rainbow piece can be placed anywhere its cells are empty (corners excluded), as long as it touches **at least one block of any kind**: any player's, dulled, grey or rainbow. It does not need to touch your own blocks.
+- **Afterwards.** It becomes **rainbow blocks, owned by nobody** (owner `RAINBOW`), at 1 HP. They never count towards anyone's tree (placing next to them is not "touching your own block"), can never be adopted, and never turn grey or join grey clusters.
+- **Scoring.** A rainbow block destroyed by a line clear is worth **+1** to the mover, never the +2 own-block bonus, even for the player who placed it.
+- **Detonation.** A group of connected rainbow blocks survives as long as it touches at least one block that is not rainbow (any player's, dulled or grey). Otherwise it detonates, and the mover gets **+1 per block**. This is checked after every placement, after the orphan and grey cluster resolution (§6), which can remove such neighbours.
+- **Invariant.** After every move, every rainbow group touches at least one non-rainbow block.
+- **Bots** play rainbow pieces like any other piece (a random legal placement).
+
+**Implementation.** `rainbowMode` and `rainbowChance` (0.05) in the game config; with rainbow mode off nothing is rolled, so classic games deal exactly as before. Each player has `rainbow[k]` alongside `hand[k]`. Placement events carry `rainbow: true`; rainbow detonations are `detonated` events with `rainbow: true`. The lobby sends `rainbowMode`; the host changes it with `setRainbow { on }`.

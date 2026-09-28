@@ -14,6 +14,7 @@ const {
   rowOf,
   colOf,
   inBounds,
+  isOccupied,
 } = require('./constants');
 const { ROTATIONS } = require('./pieces');
 
@@ -95,26 +96,30 @@ function pieceCells(piece, rotation, x, y) {
 }
 
 // §4: every cell empty (corners are BLOCKED, so never empty), and at least one
-// cell orthogonally adjacent to a block the seat owns.
-function isLegalPlacement(owner, seat, cells) {
+// cell orthogonally adjacent to a block the seat owns. §25: a rainbow piece
+// may instead touch any block at all (any player's, grey or rainbow).
+function isLegalPlacement(owner, seat, cells, rainbow = false) {
   if (!cells) return false;
   if (!cells.every((i) => owner[i] === EMPTY)) return false;
-  return cells.some((i) => NEIGHBOURS[i].some((n) => owner[n] === seat));
+  const touches = rainbow ? (o) => isOccupied(o) : (o) => o === seat;
+  return cells.some((i) => NEIGHBOURS[i].some((n) => touches(owner[n])));
 }
 
 // Every distinct legal placement of the hand's pieces, as moves
 // { handIndex, rotation, x, y }. Placements covering the same cells with the
-// same piece (e.g. the O's identical rotations) are listed once.
-function legalPlacements(owner, seat, hand) {
+// same kind of piece (e.g. the O's identical rotations) are listed once.
+// `rainbow[k]` says whether hand piece k is a rainbow piece.
+function legalPlacements(owner, seat, hand, rainbow = []) {
   const moves = [];
   const seen = new Set();
   hand.forEach((piece, handIndex) => {
+    const isRainbow = Boolean(rainbow[handIndex]);
     for (let rotation = 0; rotation < 4; rotation++) {
       for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
           const cells = pieceCells(piece, rotation, x, y);
-          if (!isLegalPlacement(owner, seat, cells)) continue;
-          const key = `${piece}:${[...cells].sort((a, b) => a - b).join(',')}`;
+          if (!isLegalPlacement(owner, seat, cells, isRainbow)) continue;
+          const key = `${piece}:${isRainbow}:${[...cells].sort((a, b) => a - b).join(',')}`;
           if (seen.has(key)) continue;
           seen.add(key);
           moves.push({ handIndex, rotation, x, y });
@@ -125,12 +130,18 @@ function legalPlacements(owner, seat, hand) {
   return moves;
 }
 
-function hasLegalMove(owner, seat, hand) {
-  for (const piece of new Set(hand)) {
+function hasLegalMove(owner, seat, hand, rainbow = []) {
+  const tried = new Set();
+  for (let k = 0; k < hand.length; k++) {
+    const piece = hand[k];
+    const isRainbow = Boolean(rainbow[k]);
+    const key = `${piece}:${isRainbow}`;
+    if (tried.has(key)) continue;
+    tried.add(key);
     for (let rotation = 0; rotation < 4; rotation++) {
       for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
-          if (isLegalPlacement(owner, seat, pieceCells(piece, rotation, x, y))) return true;
+          if (isLegalPlacement(owner, seat, pieceCells(piece, rotation, x, y), isRainbow)) return true;
         }
       }
     }

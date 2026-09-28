@@ -62,9 +62,9 @@ describe('easy bot', () => {
     assert.equal(wantsShuffle(state, SOUTH), false);
   });
 
-  it('thinks for 1.5 to 2.5 s', () => {
-    assert.equal(botThinkMs(() => 0), 1_500);
-    assert.equal(botThinkMs(() => 0.9999), 2_499);
+  it('thinks for 3 to 4 s', () => {
+    assert.equal(botThinkMs(() => 0), 3_000);
+    assert.equal(botThinkMs(() => 0.9999), 3_999);
   });
 
   it('can play a whole game against itself without breaking any rule', () => {

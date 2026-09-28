@@ -1,7 +1,18 @@
 'use strict';
 
-const { CELL_COUNT, EMPTY, BLOCKED, GREY, ALIVE, TIMED_OUT, rowOf, colOf } = require('./constants');
-const { isCorner } = require('./board');
+const {
+  CELL_COUNT,
+  EMPTY,
+  BLOCKED,
+  GREY,
+  RAINBOW,
+  ALIVE,
+  TIMED_OUT,
+  rowOf,
+  colOf,
+  isOccupied,
+} = require('./constants');
+const { isCorner, NEIGHBOURS } = require('./board');
 const { computeAnchored, findClusters, touchingColours } = require('./resolve');
 
 // Returns a list of violated invariants (empty when the state is consistent).
@@ -14,14 +25,14 @@ function checkInvariants(state) {
   for (let i = 0; i < CELL_COUNT; i++) {
     const o = owner[i];
     if (isCorner(rowOf(i), colOf(i)) !== (o === BLOCKED)) errors.push(`corner mismatch at ${at(i)}`);
-    const occupied = o >= 0 || o === GREY;
+    const occupied = isOccupied(o);
     if (occupied && !(hp[i] >= 1 && hp[i] <= 3)) errors.push(`occupied cell ${at(i)} has hp ${hp[i]}`);
     if (!occupied && hp[i] !== 0) errors.push(`unoccupied cell ${at(i)} has hp ${hp[i]}`);
     if (root[i] && o < 0) errors.push(`root flag on unowned cell ${at(i)}`);
     if (o >= 0) {
       const status = players[o].status;
       if (status !== ALIVE && status !== TIMED_OUT) errors.push(`eliminated seat ${o} owns ${at(i)}`);
-    } else if (o !== EMPTY && o !== BLOCKED && o !== GREY) {
+    } else if (o !== EMPTY && o !== BLOCKED && o !== GREY && o !== RAINBOW) {
       errors.push(`unknown owner ${o} at ${at(i)}`);
     }
   }
@@ -35,6 +46,13 @@ function checkInvariants(state) {
     const touching = touchingColours(cells, owner, anchored);
     if (touching.length < 2) {
       errors.push(`grey cluster at ${cells.map(at).join(' ')} touches ${touching.length} colour(s)`);
+    }
+  }
+
+  // §25: every rainbow group touches at least one block that isn't rainbow.
+  for (const cells of findClusters((i) => owner[i] === RAINBOW)) {
+    if (!cells.some((i) => NEIGHBOURS[i].some((n) => owner[n] >= 0 || owner[n] === GREY))) {
+      errors.push(`rainbow cluster at ${cells.map(at).join(' ')} touches no other block`);
     }
   }
 

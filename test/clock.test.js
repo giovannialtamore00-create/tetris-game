@@ -176,6 +176,40 @@ describe('rounds', () => {
   });
 });
 
+describe('game clock halving', () => {
+  it('halves the time left on the game clock when a player times out', () => {
+    const { state, events } = tick(southTurn({ remainingMs: 4_000 }), 4_000);
+    // 596 s were left at 4 s: now 298 s are.
+    assert.equal(state.endsAt, 4_000 + 298_000);
+    assert.deepEqual(ofType(events, 'clockHalved'), [{ type: 'clockHalved', at: 4_000, endsAt: 302_000 }]);
+  });
+
+  it('halves it when a player is knocked out, in real-time mode too', () => {
+    // West's whole branch is row 5 at 1 HP; South completes the row and West has no blocks left.
+    const rows = [
+      '#..n......#',
+      '...........',
+      '...........',
+      '...........',
+      '...........',
+      'wWWWW.EEEEe',
+      '.....S.....',
+      '.....S.....',
+      '.....S.....',
+      '.....S.....',
+      '#....s....#',
+    ];
+    const hpRows = ['', '', '', '', '', '11111.11113', '', '', '', '', '.....3.....'].map((r) => r.padEnd(11, '.'));
+    for (const config of [{}, { mode: 'realtime' }]) {
+      const state = buildState({ rows, hpRows, config, hands: { [SOUTH]: ['I', 'O', 'O', 'O'] } });
+      const { state: after, events } = move(state, SOUTH, { handIndex: 0, rotation: 1, x: 5, y: 2 }, 2_000);
+      assert.deepEqual(ofType(events, 'eliminated').map((e) => e.seat), [WEST]);
+      assert.equal(after.over, false);
+      assert.equal(after.endsAt, 2_000 + 299_000);
+    }
+  });
+});
+
 describe('game clock', () => {
   it('ends the game when it runs out, with no passive point for the unfinished round', () => {
     const state = { ...southTurn(), endsAt: 5_000 };

@@ -339,6 +339,18 @@ button.primary { background: hsl(210, 60%, 38%); border-color: hsl(210, 60%, 48%
 .mode-row button.on { background: hsl(210, 60%, 38%); border-color: hsl(210, 60%, 55%); }
 .mode-row .mode-help { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; }
 
+/* Rainbow mode */
+:root {
+  --rainbow: linear-gradient(135deg, #ff5f6d, #ffc371, #f9f871, #7bed9f, #70a1ff, #b983ff);
+}
+.toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.toggle input { width: 16px; height: 16px; }
+.hand-slot.rainbow {
+  border: 2px solid transparent;
+  background: linear-gradient(var(--panel-2), var(--panel-2)) padding-box, var(--rainbow) border-box;
+}
+.hand-slot.rainbow.selected { box-shadow: 0 0 0 2px #fff; }
+
 /* Real-time cooldown badge beside a hand: 3, 2, 1, then ready. */
 .hand-row { display: flex; align-items: center; gap: 8px; }
 .hand-row .hand { flex: 1; }

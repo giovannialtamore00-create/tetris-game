@@ -19,7 +19,7 @@
   const HUES = SEATS.map((s) => Number(getComputedStyle(document.documentElement).getPropertyValue(s.hueVar)));
   const HP_LIGHTNESS = { 3: 34, 2: 48, 1: 64 };
   const GREY_LIGHTNESS = { 3: 34, 2: 48, 1: 62 };
-  const PIECE_NAMES = { M: '1×1', D: '1×2', L3: 'small L' };
+  const PIECE_NAMES = { M: '1×1', D: '1×2', L3: 'small L', I3: '1×3' };
   const STATUS_TEXT = { alive: 'alive', eliminated: 'eliminated', timedOut: 'timed out' };
 
   const $ = (id) => document.getElementById(id);
@@ -245,7 +245,7 @@
 
   const HUMAN_SEAT = 0; // against bots you always play South
 
-  function createLocalController({ botSeats = [], mode = C.TURNS } = {}) {
+  function createLocalController({ botSeats = [], mode = C.TURNS, rainbowMode = false } = {}) {
     const vsBots = botSeats.length > 0;
     const isBotSeat = (seat) => botSeats.includes(seat);
     let botPlan = null; // turn-based: { turnStartedAt, at }, when the bot to move will play
@@ -282,7 +282,7 @@
     }
 
     // Easy bots: use a shuffle offer at once; on their live turn, move after
-    // thinking for 1.5-2.5 s of game time (so pausing pauses them too).
+    // thinking for 3-4 s of game time (so pausing pauses them too).
     function runBots(t) {
       const s = ui.state;
       if (!s || s.over) return;
@@ -306,7 +306,7 @@
     }
 
     // Real-time (§21): each bot acts once its cooldown is over plus a
-    // 1.5-2.5 s think: a random legal piece, or a shuffle if it has none.
+    // 3-4 s think: a random legal piece, or a shuffle if it has none.
     function runRealtimeBots(t) {
       for (const seat of botSeats) {
         const p = ui.state.players[seat];
@@ -369,7 +369,7 @@
         time.lastReal = performance.now();
         time.paused = false;
         const seed = Math.floor(Math.random() * 2 ** 31);
-        const result = game.createGame({ seed, now: 0, config: { mode } });
+        const result = game.createGame({ seed, now: 0, config: { mode, rainbowMode } });
         botPlan = null;
         realtimePlans = [];
         resetGameView();
@@ -409,6 +409,7 @@
     let seats = [null, null, null, null];
     let host = null; // lobby host seat
     let lobbyMode = C.TURNS;
+    let lobbyRainbow = false;
     let lobbyError = '';
     let session = null; // { code, token }
     let leaving = false;
@@ -463,6 +464,7 @@
           mySeat = msg.you;
           host = msg.host;
           lobbyMode = msg.mode;
+          lobbyRainbow = msg.rainbowMode;
           lobbyError = '';
           showScreen('lobby');
           renderLobby(msg.code);
@@ -560,6 +562,12 @@
       togglePause() {
         if (!c.paused) send({ type: 'pause' });
         else if (c.canUnpause()) send({ type: 'unpause' });
+      },
+      get lobbyRainbow() {
+        return lobbyRainbow;
+      },
+      setRainbow(on) {
+        send({ type: 'setRainbow', on });
       },
       get lobbyMode() {
         return lobbyMode;
@@ -676,6 +684,7 @@
       el.lobbySeats.appendChild(li);
     });
     renderModeRow();
+    renderRainbowRow();
     const missing = ctl.seats.filter((s) => !s).length;
     $('addBotBtn').hidden = !(ctl.isHost && missing > 0);
     const hostNote = ctl.isHost ? ' As host, you can fill empty seats with easy bots.' : '';
@@ -688,6 +697,31 @@
     turns: 'Players take turns, each with a personal clock.',
     realtime: 'No turns: place whenever you like, with a 3 s cooldown after each piece (none after a line clear).',
   };
+
+  // Rainbow mode (§25): the host switches it on or off; everyone else sees it.
+  function renderRainbowRow() {
+    const row = $('rainbowRow');
+    row.innerHTML = '';
+    row.appendChild(span('label', 'Rainbow mode:'));
+    if (ctl.isHost) {
+      for (const on of [false, true]) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = on ? 'On' : 'Off';
+        if (ctl.lobbyRainbow === on) btn.className = 'on';
+        btn.addEventListener('click', () => ctl.setRainbow(on));
+        row.appendChild(btn);
+      }
+    } else {
+      row.appendChild(span('', `${ctl.lobbyRainbow ? 'On' : 'Off'} (chosen by the host)`));
+    }
+    const help = document.createElement('p');
+    help.className = 'mode-help';
+    help.textContent = ctl.lobbyRainbow
+      ? 'Extra pieces (1×3, 1×2, small L), and each piece has a 5% chance to be a rainbow piece you can place anywhere touching any block.'
+      : 'The classic piece set, no rainbow pieces.';
+    row.appendChild(help);
+  }
 
   // The host picks the mode; everyone else sees the choice.
   function renderModeRow() {
@@ -750,7 +784,8 @@
       .filter(([r, c]) => C.inBounds(r, c))
       .map(([r, c]) => C.idx(r, c));
     const exact = B.pieceCells(piece, rotation, x, y);
-    const legal = B.isLegalPlacement(ui.state.owner, seat, exact);
+    const rainbow = Boolean(ui.state.players[seat].rainbow && ui.state.players[seat].rainbow[ui.selected]);
+    const legal = B.isLegalPlacement(ui.state.owner, seat, exact, rainbow);
     return { x, y, rotation, cells, legal };
   }
 
@@ -855,6 +890,9 @@
     const hp = board.hp[i];
     if (owner === C.BLOCKED) return { className: 'cell blocked', background: '', shadow: '', text: '' };
     if (owner === C.EMPTY) return { className: 'cell', background: '', shadow: '', text: '' };
+    if (owner === C.RAINBOW) {
+      return { className: 'cell rainbow-block', background: 'var(--rainbow)', shadow: '', text: '' };
+    }
     if (owner === C.GREY) {
       return { className: 'cell', background: `hsl(0, 0%, ${GREY_LIGHTNESS[hp]}%)`, shadow: '', text: '' };
     }
@@ -950,7 +988,7 @@
 
   // --- Players ------------------------------------------------------------------
 
-  function miniPiece(piece, rotation, hue) {
+  function miniPiece(piece, rotation, hue, rainbow = false) {
     const offsets = P.ROTATIONS[piece][rotation];
     const h = Math.max(...offsets.map(([r]) => r)) + 1;
     const w = Math.max(...offsets.map(([, c]) => c)) + 1;
@@ -961,7 +999,7 @@
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         const d = document.createElement('div');
-        if (filled.has(`${r},${c}`)) d.style.background = `hsl(${hue}, 65%, 55%)`;
+        if (filled.has(`${r},${c}`)) d.style.background = rainbow ? 'var(--rainbow)' : `hsl(${hue}, 65%, 55%)`;
         grid.appendChild(d);
       }
     }
@@ -1038,11 +1076,12 @@
       p.hand.forEach((piece, k) => {
         const slot = document.createElement('div');
         const selected = isMine && ui.selected === k;
-        const special = P.SPECIAL_PIECES.includes(piece);
-        slot.className = `hand-slot${isMine ? ' clickable' : ''}${selected ? ' selected' : ''}${special ? ' special' : ''}`;
-        const label = `${pieceName(piece)}${special ? ' (special)' : ''}`;
+        const special = P.poolFor(s.config).special.includes(piece);
+        const rainbow = Boolean(p.rainbow && p.rainbow[k]);
+        slot.className = `hand-slot${isMine ? ' clickable' : ''}${selected ? ' selected' : ''}${special ? ' special' : ''}${rainbow ? ' rainbow' : ''}`;
+        const label = `${rainbow ? 'Rainbow ' : ''}${pieceName(piece)}${special ? ' (special)' : ''}${rainbow ? ' — place it anywhere touching any block' : ''}`;
         slot.title = isMine ? `${label} — press ${k + 1}` : label;
-        slot.appendChild(miniPiece(piece, selected ? ui.rotation : 0, hue));
+        slot.appendChild(miniPiece(piece, selected ? ui.rotation : 0, hue, rainbow));
         if (isMine) slot.addEventListener('click', () => selectPiece(k));
         hand.appendChild(slot);
       });
@@ -1183,9 +1222,9 @@
   function describe(e) {
     switch (e.type) {
       case 'note': return e.text;
-      case 'gameStarted': return `${e.mode === 'realtime' ? 'Real-time' : 'Turn-based'} game started (10:00 on the clock).`;
+      case 'gameStarted': return `${e.mode === 'realtime' ? 'Real-time' : 'Turn-based'} game${e.rainbowMode ? ' in rainbow mode' : ''} started (10:00 on the clock).`;
       case 'turnStarted': return `${who(e.seat)}'s turn.`;
-      case 'placed': return `${who(e.seat)} placed ${pieceName(e.piece)} at ${cellName(e.cells[0])}.`;
+      case 'placed': return `${who(e.seat)} placed ${e.rainbow ? 'a rainbow ' : ''}${pieceName(e.piece)} at ${cellName(e.cells[0])}.`;
       case 'lineClearBonus': return `${who(e.seat)} gains +${e.ms / 1000} s for ${e.lines} line clear(s) (up to the cap).`;
       case 'rewardPiece': return `${who(e.seat)} earned a special piece for the line clear: ${pieceName(e.piece)}.`;
       case 'linesCompleted': return `Line clear: ${e.lines.map(lineName).join(', ')}.`;
@@ -1194,13 +1233,17 @@
         const pts = e.cells.reduce((sum, d) => sum + d.points, 0);
         return `${e.cells.length} block(s) destroyed by the clear: +${pts} to ${who(e.scorer)}.`;
       }
-      case 'detonated': return `${e.cells.length} cut-off block(s) detonated: +${e.points} to ${who(e.scorer)}.`;
+      case 'detonated': return `${e.cells.length} cut-off ${e.rainbow ? 'rainbow ' : ''}block(s) detonated: +${e.points} to ${who(e.scorer)}.`;
       case 'converted': return `${e.cells.length} block(s) converted to ${who(e.to)} (+${e.points}).`;
       case 'greyed': return `${e.cells.length} block(s) turned grey.`;
       case 'scored': return null;
       case 'interlude': return null;
       case 'cooldown': return null;
       case 'shuffleOffered': return `${who(e.seat)} has no legal move: a shuffle is available.`;
+      case 'clockHalved': {
+        const left = Math.max(0, Math.round((e.endsAt - e.at) / 1000));
+        return `A player is out: the game clock is halved (${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left).`;
+      }
       case 'paused': return `${who(e.seat)} paused the game.`;
       case 'resumed': return `${who(e.seat)} resumed the game after ${Math.round(e.pausedMs / 1000)} s.`;
       case 'eliminated': return `${who(e.seat)} has no blocks left and is eliminated.`;
@@ -1284,15 +1327,15 @@
   // --- Wiring ---------------------------------------------------------------------
 
   $('hotseatBtn').addEventListener('click', () => {
-    ctl = createLocalController();
+    ctl = createLocalController({ rainbowMode: $('rainbowLocal').checked });
     ctl.start();
   });
   $('vsBotsBtn').addEventListener('click', () => {
-    ctl = createLocalController({ botSeats: [1, 2, 3] });
+    ctl = createLocalController({ botSeats: [1, 2, 3], rainbowMode: $('rainbowLocal').checked });
     ctl.start();
   });
   $('vsBotsRealtimeBtn').addEventListener('click', () => {
-    ctl = createLocalController({ botSeats: [1, 2, 3], mode: C.REALTIME });
+    ctl = createLocalController({ botSeats: [1, 2, 3], mode: C.REALTIME, rainbowMode: $('rainbowLocal').checked });
     ctl.start();
   });
   $('addBotBtn').addEventListener('click', () => ctl && ctl.mode === 'online' && ctl.addBot());

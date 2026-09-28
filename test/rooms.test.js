@@ -424,6 +424,46 @@ describe('rooms: game mode', () => {
   });
 });
 
+describe('rooms: rainbow mode', () => {
+  it('is off unless the host switches it on, and only the host can', () => {
+    const { rooms } = setup();
+    const ann = fakeConn();
+    const bob = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    const code = ann.last('joined').code;
+    assert.equal(ann.last('lobby').rainbowMode, false);
+    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
+    rooms.handleMessage(bob, { type: 'setRainbow', on: true });
+    assert.equal(bob.last('error').error, 'notHost');
+    rooms.handleMessage(ann, { type: 'setRainbow', on: true });
+    assert.equal(bob.last('lobby').rainbowMode, true);
+  });
+
+  it('starts the game in rainbow mode, combinable with real-time', () => {
+    const { rooms } = setup();
+    const ann = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    rooms.handleMessage(ann, { type: 'setRainbow', on: true });
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    const { state } = ann.last('state');
+    assert.equal(state.config.rainbowMode, true);
+    assert.equal(state.config.mode, 'realtime');
+  });
+
+  it('lets bots play a rainbow-mode game on the server', () => {
+    const { env, rooms } = setup();
+    const ann = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    rooms.handleMessage(ann, { type: 'setRainbow', on: true });
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    env.advance(60_000);
+    const placed = ann.all('state').flatMap((m) => m.events).filter((e) => e.type === 'placed');
+    assert.ok(placed.length > 20, `only ${placed.length} placements`);
+  });
+});
+
 describe('rooms: pause', () => {
   it('lets any player pause the game for everyone', () => {
     const { env, rooms, conns } = fullRoom();

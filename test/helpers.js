@@ -6,6 +6,7 @@ const {
   EMPTY,
   BLOCKED,
   GREY,
+  RAINBOW,
   SEAT_COUNT,
   ALIVE,
   idx,
@@ -18,9 +19,9 @@ const { checkInvariants } = require('../src/core/invariants');
 //   '#' corner   '.' empty   'G' grey
 //   'S' South (0)   'W' West (1)   'N' North (2)   'E' East (3)
 // A lowercase seat letter ('s', 'w', 'n', 'e') is a surviving starting piece,
-// i.e. a root; an uppercase letter is a block placed later.
+// i.e. a root; an uppercase letter is a block placed later. 'R' is a rainbow block.
 // Optional HP maps use digits 1-3 ('.' or any other character = default 1).
-const OWNER_CHARS = { '.': EMPTY, '#': BLOCKED, G: GREY, S: 0, W: 1, N: 2, E: 3, s: 0, w: 1, n: 2, e: 3 };
+const OWNER_CHARS = { '.': EMPTY, '#': BLOCKED, G: GREY, R: RAINBOW, S: 0, W: 1, N: 2, E: 3, s: 0, w: 1, n: 2, e: 3 };
 
 function parseBoard(rows, hpRows) {
   assert.equal(rows.length, SIZE, 'board map needs 11 rows');
@@ -36,7 +37,7 @@ function parseBoard(rows, hpRows) {
       assert.equal(o === BLOCKED, isCorner(r, c), `corner mismatch at (${r},${c})`);
       owner.push(o);
       root.push('swne'.includes(ch));
-      const occupied = o >= 0 || o === GREY;
+      const occupied = o >= 0 || o === GREY || o === RAINBOW;
       const digit = hpRows ? Number(hpRows[r][c]) : NaN;
       hp.push(occupied ? (digit >= 1 && digit <= 3 ? digit : 1) : 0);
     }
@@ -78,12 +79,16 @@ function buildState({
   statuses = {},
   players = {},
   live = true,
+  // Which hand pieces are rainbow pieces, by seat (default: none).
+  rainbow = {},
   // Most tests are about other rules, so turns start without the 2 s pause
-  // unless a test asks for it; the pause itself is tested in turns.test.js.
+  // and no piece is dealt as a rainbow piece, unless a test asks for it; those
+  // rules are tested in turns.test.js and rainbow.test.js.
   config = {},
 } = {}) {
-  const { state } = game.createGame({ seed, now, config: { turnDelayMs: 0, ...config } });
+  const { state } = game.createGame({ seed, now, config: { turnDelayMs: 0, rainbowChance: 0, ...config } });
   if (rows) Object.assign(state, parseBoard(rows, hpRows));
+  for (const p of state.players) p.rainbow = p.hand.map((_, k) => Boolean(rainbow[p.seat] && rainbow[p.seat][k]));
   for (const [seat, hand] of Object.entries(hands)) state.players[seat].hand = [...hand];
   for (const [seat, status] of Object.entries(statuses)) state.players[seat].status = status;
   for (const [seat, fields] of Object.entries(players)) Object.assign(state.players[seat], fields);

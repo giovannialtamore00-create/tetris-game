@@ -9,7 +9,8 @@ const { legalPlacements } = require('./board');
 
 // The move an easy bot would make now, or null if it has none.
 function chooseEasyMove(state, seat, random = Math.random) {
-  const moves = legalPlacements(state.owner, seat, state.players[seat].hand);
+  const p = state.players[seat];
+  const moves = legalPlacements(state.owner, seat, p.hand, p.rainbow);
   if (moves.length === 0) return null;
   return moves[Math.floor(random() * moves.length)];
 }
@@ -20,9 +21,9 @@ function wantsShuffle(state, seat) {
   return !state.over && p.status === ALIVE && p.shuffleAvailable;
 }
 
-// A human-like pause before a bot moves: 1.5-2.5 s, well inside the AFK timer.
+// A human-like pause before a bot moves: 3-4 s, well inside the AFK timer.
 function botThinkMs(random = Math.random) {
-  return 1_500 + Math.floor(random() * 1_000);
+  return 3_000 + Math.floor(random() * 1_000);
 }
 
 module.exports = { chooseEasyMove, wantsShuffle, botThinkMs };

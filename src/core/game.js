@@ -7,10 +7,11 @@ const {
   ELIMINATED,
   TIMED_OUT,
   REALTIME,
+  RAINBOW,
   DEFAULT_CONFIG,
 } = require('./constants');
 const { deriveSeed, createRng, nextInt } = require('./rng');
-const { createBag, drawPiece, drawSpecialPiece } = require('./pieces');
+const { createBag, drawPiece, drawSpecialPiece, rollRainbow, poolName } = require('./pieces');
 const {
   createStartingBoard,
   pieceCells,
@@ -19,7 +20,7 @@ const {
   countBlocks,
 } = require('./board');
 const { completedLines, hitCounts } = require('./lines');
-const { resolveClusters, clusterPoints } = require('./resolve');
+const { resolveClusters, resolveRainbow, clusterPoints } = require('./resolve');
 const { rankPlayers } = require('./ranking');
 
 // Every public function is pure: it takes a state and returns
@@ -39,14 +40,19 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
 
   const players = [];
   for (let seat = 0; seat < SEAT_COUNT; seat++) {
-    const bag = createBag(deriveSeed(seed, seat + 1));
+    const bag = createBag(deriveSeed(seed, seat + 1), poolName(cfg));
     const hand = [];
-    for (let k = 0; k < cfg.handSize; k++) hand.push(drawPiece(bag));
+    const rainbow = [];
+    for (let k = 0; k < cfg.handSize; k++) {
+      hand.push(drawPiece(bag));
+      rainbow.push(rollRainbow(bag, rainbowChance(cfg)));
+    }
     players.push({
       seat,
       status: ALIVE,
       score: 0,
       hand,
+      rainbow, // rainbow[k]: whether hand piece k is a rainbow piece (§25)
       bag,
       remainingMs: cfg.clockStartMs,
       capMs: cfg.clockStartMs,
@@ -78,7 +84,7 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
     pausedBy: null,
   };
 
-  const events = [{ type: 'gameStarted', mode: cfg.mode, at: now, endsAt: s.endsAt }];
+  const events = [{ type: 'gameStarted', mode: cfg.mode, rainbowMode: cfg.rainbowMode, at: now, endsAt: s.endsAt }];
   if (cfg.mode === REALTIME) {
     // §21: no turns; everyone may place from the start.
     s.phase = 'realtime';
@@ -92,11 +98,16 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
 
 const isRealtime = (s) => s.config.mode === REALTIME;
 
+// §25: rainbow pieces are only dealt in rainbow mode.
+function rainbowChance(cfg) {
+  return cfg.rainbowMode ? cfg.rainbowChance : 0;
+}
+
 // §21: in real-time mode a living player with no legal move gets a shuffle
 // offer at once. Checked after every change to the board or a hand.
 function refreshOffers(s, now, events) {
   for (const p of s.players) {
-    if (p.status === ALIVE && !p.shuffleAvailable && !hasLegalMove(s.owner, p.seat, p.hand)) {
+    if (p.status === ALIVE && !p.shuffleAvailable && !hasLegalMove(s.owner, p.seat, p.hand, p.rainbow)) {
       p.shuffleAvailable = true;
       events.push({ type: 'shuffleOffered', seat: p.seat, at: now });
     }
@@ -177,7 +188,7 @@ function beginTurn(s, seat, now, events) {
   s.interludeEndsAt = null;
   s.activeSeat = seat;
   s.turnStartedAt = null;
-  if (!hasLegalMove(s.owner, seat, s.players[seat].hand)) {
+  if (!hasLegalMove(s.owner, seat, s.players[seat].hand, s.players[seat].rainbow)) {
     forcedPass(s, seat, now, events);
     return;
   }
@@ -283,8 +294,9 @@ function applyMove(state, seat, move, now) {
   if (!Number.isInteger(rotation) || rotation < 0 || rotation > 3) return fail('invalidRotation');
   if (!Number.isInteger(x) || !Number.isInteger(y)) return fail('invalidPosition');
   const piece = player.hand[handIndex];
+  const rainbow = Boolean(player.rainbow && player.rainbow[handIndex]);
   const cells = pieceCells(piece, rotation, x, y);
-  if (!isLegalPlacement(state.owner, seat, cells)) return fail('illegalPlacement');
+  if (!isLegalPlacement(state.owner, seat, cells, rainbow)) return fail('illegalPlacement');
 
   const s = clone(state);
   const events = [];
@@ -293,13 +305,13 @@ function applyMove(state, seat, move, now) {
 
   // §15 step 2: charge time (turn-based only; real-time has no personal clocks).
   if (!realtime) mover.remainingMs -= now - s.turnStartedAt;
-  const lines = resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events);
+  const lines = resolvePlacement(s, seat, { piece, rotation, x, y, cells, rainbow }, now, events);
   mover.shuffleAvailable = false;
 
   if (realtime) {
     // §21: refill from the bag (no special reward piece); a line clear skips the cooldown.
     if (mover.status === ALIVE) {
-      mover.hand[handIndex] = drawPiece(mover.bag);
+      deal(s, mover, handIndex, drawPiece(mover.bag));
       mover.cooldownUntil = lines.length > 0 ? now : now + cfg.cooldownMs;
       events.push({ type: 'cooldown', seat, until: mover.cooldownUntil, at: now });
     }
@@ -312,10 +324,10 @@ function applyMove(state, seat, move, now) {
   // played slot with a special piece instead of a bag draw (§3).
   if (mover.status === ALIVE) {
     if (lines.length > 0) {
-      mover.hand[handIndex] = drawSpecialPiece(mover.bag);
+      deal(s, mover, handIndex, drawSpecialPiece(mover.bag));
       events.push({ type: 'rewardPiece', seat, piece: mover.hand[handIndex], handIndex });
     } else {
-      mover.hand[handIndex] = drawPiece(mover.bag);
+      deal(s, mover, handIndex, drawPiece(mover.bag));
     }
     // +2 s for the move, plus 2 s for every line it completed (§8).
     const lineBonusMs = lines.length * cfg.lineClearBonusMs;
@@ -329,10 +341,25 @@ function applyMove(state, seat, move, now) {
   return ok(s, events);
 }
 
+// §12: every time a player is out (no blocks left, or timed out), the time
+// left on the game clock is halved.
+function halveGameClock(s, now, events) {
+  const left = Math.max(0, s.endsAt - now);
+  s.endsAt = now + Math.floor(left / 2);
+  events.push({ type: 'clockHalved', at: now, endsAt: s.endsAt });
+}
+
+// Puts `piece` in hand slot k and rolls whether it is a rainbow piece (§25).
+function deal(s, player, k, piece) {
+  player.hand[k] = piece;
+  player.rainbow[k] = rollRainbow(player.bag, rainbowChance(s.config));
+}
+
 // §15 steps 3-8, shared by both modes: place the piece, apply line hits and
-// destructions, resolve orphan and grey clusters, and eliminate players left
-// with no blocks. Mutates `s`; returns the completed lines.
-function resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events) {
+// destructions, resolve orphan and grey clusters (and rainbow groups, §25),
+// and eliminate players left with no blocks. Mutates `s`; returns the
+// completed lines. A rainbow piece becomes rainbow blocks, owned by nobody.
+function resolvePlacement(s, seat, { piece, rotation, x, y, cells, rainbow = false }, now, events) {
   const cfg = s.config;
   const statusOf = (k) => s.players[k].status;
   const scoreDelta = new Array(SEAT_COUNT).fill(0);
@@ -343,10 +370,10 @@ function resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events
 
   // Step 3: place.
   for (const i of cells) {
-    s.owner[i] = seat;
+    s.owner[i] = rainbow ? RAINBOW : seat;
     s.hp[i] = cfg.placedHp;
   }
-  events.push({ type: 'placed', seat, piece, rotation, x, y, cells, at: now });
+  events.push({ type: 'placed', seat, piece, rainbow, rotation, x, y, cells, at: now });
 
   // Steps 4-5: line hits and destructions.
   const lines = completedLines(s.owner, cells);
@@ -383,6 +410,11 @@ function resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events
       events.push({ type: 'greyed', cells: decision.newlyGreyed, cluster: decision.cells });
     }
   }
+  // §25: rainbow groups left touching no other block detonate (mover +1 each).
+  for (const detonated of resolveRainbow(s.owner, s.hp)) {
+    award(seat, detonated.length);
+    events.push({ type: 'detonated', scorer: seat, points: detonated.length, cells: detonated, rainbow: true });
+  }
   if (scoreDelta.some((d) => d !== 0)) events.push({ type: 'scored', deltas: scoreDelta });
 
   // Step 8: eliminations.
@@ -391,6 +423,7 @@ function resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events
       p.status = ELIMINATED;
       p.shuffleAvailable = false;
       events.push({ type: 'eliminated', seat: p.seat, at: now });
+      halveGameClock(s, now, events);
     }
   }
   return lines;
@@ -406,12 +439,15 @@ function shuffle(state, seat, now) {
   const s = clone(state);
   const events = [];
   const p = s.players[seat];
-  // A shuffled hand is bag draws plus one special piece in the last slot (§8).
+  // A shuffled hand is bag draws plus one special piece in the last slot (§8);
+  // each piece may be a rainbow piece (§25).
+  const last = s.config.handSize - 1;
   p.hand = [];
-  for (let k = 0; k < s.config.handSize - 1; k++) p.hand.push(drawPiece(p.bag));
-  p.hand.push(drawSpecialPiece(p.bag));
+  p.rainbow = [];
+  for (let k = 0; k < last; k++) deal(s, p, k, drawPiece(p.bag));
+  deal(s, p, last, drawSpecialPiece(p.bag));
   p.shuffleAvailable = false;
-  events.push({ type: 'shuffled', seat, hand: [...p.hand], at: now });
+  events.push({ type: 'shuffled', seat, hand: [...p.hand], rainbow: [...p.rainbow], at: now });
 
   if (isRealtime(s)) {
     // §21: still stuck after shuffling? A fresh offer is available at once.
@@ -420,7 +456,7 @@ function shuffle(state, seat, now) {
   }
 
   const ownLiveTurn = s.phase === 'turn' && s.activeSeat === seat && s.turnStartedAt !== null;
-  if (ownLiveTurn && !hasLegalMove(s.owner, seat, p.hand)) {
+  if (ownLiveTurn && !hasLegalMove(s.owner, seat, p.hand, p.rainbow)) {
     p.remainingMs -= now - s.turnStartedAt;
     forcedPass(s, seat, now, events);
   } else if (
@@ -449,6 +485,7 @@ function tick(state, now) {
       p.status = TIMED_OUT;
       p.shuffleAvailable = false;
       events.push({ type: 'timedOut', seat: p.seat, at });
+      halveGameClock(s, at, events);
       endTurn(s, at, events);
     } else if (due.kind === 'afk') {
       const p = s.players[s.activeSeat];

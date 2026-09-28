@@ -1,6 +1,6 @@
 'use strict';
 
-const { CELL_COUNT, EMPTY, GREY, ALIVE } = require('./constants');
+const { CELL_COUNT, EMPTY, GREY, RAINBOW, ALIVE } = require('./constants');
 const { NEIGHBOURS } = require('./board');
 
 // §6: a block is anchored if an orthogonal chain of same-owner blocks links it
@@ -115,4 +115,25 @@ function clusterPoints(decision, moverSeat, statusOf) {
   return null;
 }
 
-module.exports = { computeAnchored, findClusters, touchingColours, resolveClusters, clusterPoints };
+// §25: rainbow blocks belong to nobody, are never adopted and never turn grey.
+// A group of connected rainbow blocks survives while it touches at least one
+// block that is not rainbow (any player's, dulled or grey); otherwise it
+// detonates. Runs after cluster resolution, which can remove such neighbours.
+// Mutates `owner` and `hp`; returns the detonated rainbow clusters.
+function resolveRainbow(owner, hp) {
+  const detonated = [];
+  for (const cells of findClusters((i) => owner[i] === RAINBOW)) {
+    const touchesOther = cells.some((i) =>
+      NEIGHBOURS[i].some((n) => owner[n] >= 0 || owner[n] === GREY),
+    );
+    if (touchesOther) continue;
+    for (const i of cells) {
+      owner[i] = EMPTY;
+      hp[i] = 0;
+    }
+    detonated.push(cells);
+  }
+  return detonated;
+}
+
+module.exports = { computeAnchored, findClusters, touchingColours, resolveClusters, resolveRainbow, clusterPoints };

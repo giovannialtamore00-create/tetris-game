@@ -63,6 +63,7 @@ class Room {
     this.state = null; // set when the game starts
     this.history = []; // board after the start and after every placement (move history)
     this.mode = TURNS; // chosen by the host in the lobby
+    this.rainbowMode = false; // §25: also chosen by the host in the lobby
     this.deadlineTimer = null;
     this.cleanupTimer = null;
     this.botTimer = null;
@@ -131,6 +132,14 @@ class Room {
     if (error) return this.sendError(conn, error);
     if (mode !== TURNS && mode !== REALTIME) return this.sendError(conn, 'badMode');
     this.mode = mode;
+    this.broadcastLobby();
+  }
+
+  // Host only, before the game starts: rainbow mode on or off (§25).
+  setRainbow(conn, on) {
+    const error = this.hostCheck(conn);
+    if (error) return this.sendError(conn, error);
+    this.rainbowMode = Boolean(on);
     this.broadcastLobby();
   }
 
@@ -242,7 +251,7 @@ class Room {
 
   start() {
     const seed = Math.floor(this.manager.random() * 2 ** 31);
-    const config = { ...this.manager.gameConfig, mode: this.mode };
+    const config = { ...this.manager.gameConfig, mode: this.mode, rainbowMode: this.rainbowMode };
     const result = game.createGame({ seed, now: this.manager.now(), config });
     this.state = result.state;
     this.broadcastState(result.events);
@@ -294,7 +303,7 @@ class Room {
   // --- Bots ---------------------------------------------------------------------
   // After every state change the room looks for something a bot should do: use
   // a shuffle offer (shortly), or move on its live turn (after thinking for
-  // 1.5-2.5 s). One timer is enough, because every bot action changes the
+  // 3-4 s). One timer is enough, because every bot action changes the
   // state and so schedules the next one.
   scheduleBots() {
     this.manager.clearTimer(this.botTimer);
@@ -341,7 +350,7 @@ class Room {
   }
 
   // Real-time mode (§21): each bot acts when its cooldown is over plus a
-  // 1.5-2.5 s think. The plan is redrawn whenever the bot's cooldown changes.
+  // 3-4 s think. The plan is redrawn whenever the bot's cooldown changes.
   // The room's one bot timer is set for whichever bot acts first.
   scheduleRealtimeBots() {
     const s = this.state;
@@ -412,8 +421,10 @@ class Room {
   broadcastLobby() {
     const seats = this.seatInfo();
     const host = this.hostSeat;
-    const mode = this.mode;
-    this.eachConnected((conn, seat) => conn.send({ type: 'lobby', code: this.code, you: seat, host, mode, seats }));
+    const { mode, rainbowMode } = this;
+    this.eachConnected((conn, seat) =>
+      conn.send({ type: 'lobby', code: this.code, you: seat, host, mode, rainbowMode, seats }),
+    );
   }
 
   broadcastState(events) {
@@ -481,6 +492,7 @@ class RoomManager {
   //   { type: 'addBot' }              (host, lobby only)
   //   { type: 'removeBot', seat }     (host, lobby only)
   //   { type: 'setMode', mode }       (host, lobby only: 'turns' or 'realtime')
+  //   { type: 'setRainbow', on }      (host, lobby only: rainbow mode on/off)
   //   { type: 'pause' }               (any player, during a game)
   //   { type: 'unpause' }             (the player who paused, or the host)
   handleMessage(conn, msg) {
@@ -526,6 +538,10 @@ class RoomManager {
       case 'setMode':
         if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
         room.setMode(conn, msg.mode);
+        return;
+      case 'setRainbow':
+        if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
+        room.setRainbow(conn, msg.on);
         return;
       case 'pause':
         if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
