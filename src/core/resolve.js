@@ -1,23 +1,27 @@
 'use strict';
 
-const { CELL_COUNT, EMPTY, GREY, SEAT_COUNT, ALIVE } = require('./constants');
-const { NEIGHBOURS, EDGE_CELLS } = require('./board');
+const { CELL_COUNT, EMPTY, GREY, ALIVE } = require('./constants');
+const { NEIGHBOURS } = require('./board');
 
 // §6: a block is anchored if an orthogonal chain of same-owner blocks links it
-// to one of its owner's roots (owned cells on the owner's edge line). This is
-// computed for every seat, living or timed out.
-function computeAnchored(owner) {
+// to one of its owner's roots: the owner's surviving starting pieces
+// (`root[i]`). Blocks placed later are never roots, even on the owner's own
+// edge. This is computed for every seat, living or timed out.
+function computeAnchored(owner, root) {
   const anchored = new Array(CELL_COUNT).fill(false);
-  for (let seat = 0; seat < SEAT_COUNT; seat++) {
-    const queue = EDGE_CELLS[seat].filter((i) => owner[i] === seat);
-    for (const i of queue) anchored[i] = true;
-    while (queue.length > 0) {
-      const i = queue.pop();
-      for (const n of NEIGHBOURS[i]) {
-        if (!anchored[n] && owner[n] === seat) {
-          anchored[n] = true;
-          queue.push(n);
-        }
+  const queue = [];
+  for (let i = 0; i < CELL_COUNT; i++) {
+    if (root[i] && owner[i] >= 0) {
+      anchored[i] = true;
+      queue.push(i);
+    }
+  }
+  while (queue.length > 0) {
+    const i = queue.pop();
+    for (const n of NEIGHBOURS[i]) {
+      if (!anchored[n] && owner[n] === owner[i]) {
+        anchored[n] = true;
+        queue.push(n);
       }
     }
   }
@@ -63,12 +67,13 @@ function touchingColours(cells, owner, anchored) {
 // with existing grey blocks they form clusters that detonate (0 touching
 // colours), convert (1) or become/stay grey (2+). Every cluster is decided from
 // the same snapshot, then all outcomes are applied. Mutates `owner` and `hp`.
+// A root is always anchored, so no cluster ever contains one.
 //
 // Returns one entry per cluster:
 //   { outcome: 'detonate' | 'convert' | 'grey', cells, touching,
 //     to (convert only), newlyGreyed (grey only), formerOwners }
-function resolveClusters(owner, hp) {
-  const anchored = computeAnchored(owner);
+function resolveClusters(owner, hp, root) {
+  const anchored = computeAnchored(owner, root);
   const ownerless = (i) => owner[i] === GREY || (owner[i] >= 0 && !anchored[i]);
 
   const decisions = findClusters(ownerless).map((cells) => {

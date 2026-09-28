@@ -13,6 +13,7 @@ const {
   TIMED_OUT,
 } = require('../src/core/constants');
 const game = require('../src/core/game');
+const { SPECIAL_PIECES } = require('../src/core/pieces');
 const { buildState, move, at, ofType, scores } = require('./helpers');
 
 // Row 5 is full except (5,5). South plays a vertical I into column 5 at rows
@@ -22,17 +23,17 @@ const { buildState, move, at, ofType, scores } = require('./helpers');
 //   East  (5,6)-(5,9) destroyed: 4 x 1 point, (5,10) 3 HP -> 2 (survives)
 // South's other new blocks (2,5)-(4,5) lose their link and are orphaned.
 const ROW_FIVE = [
-  '#..N......#',
+  '#..n......#',
   '...........',
   '...........',
   '...........',
   '...........',
-  'WWWWW.EEEEE',
+  'wWWWW.EEEEe',
   '.....S.....',
   '.....S.....',
   '.....S.....',
   '.....S.....',
-  '#....S....#',
+  '#....s....#',
 ];
 const ROW_FIVE_HP = [
   '...........',
@@ -88,7 +89,7 @@ describe('scoring', () => {
 
   it('pays the adopting player for a converted cluster', () => {
     const rows = [...ROW_FIVE];
-    rows[0] = '#...N.....#';
+    rows[0] = '#...n.....#';
     rows[1] = '....N......';
     rows[2] = '....N......';
     const { state, events } = playRowFive({ rows });
@@ -100,7 +101,7 @@ describe('scoring', () => {
 
   it('pays nothing to a timed-out player who adopts a cluster', () => {
     const rows = [...ROW_FIVE];
-    rows[0] = '#...N.....#';
+    rows[0] = '#...n.....#';
     rows[1] = '....N......';
     rows[2] = '....N......';
     const { state, events } = playRowFive({ rows, statuses: { [NORTH]: TIMED_OUT } });
@@ -133,6 +134,22 @@ describe('scoring', () => {
     assert.equal(state.players[SOUTH].hand.length, 4);
     assert.deepEqual(state.players[SOUTH].hand.slice(1), ['O', 'O', 'O']);
     assert.equal(state.players[SOUTH].status, ALIVE);
+  });
+
+  it('rewards a line clear by refilling the played slot with a special piece', () => {
+    const { state, events } = playRowFive();
+    const reward = state.players[SOUTH].hand[0];
+    assert.ok(SPECIAL_PIECES.includes(reward), `expected a special piece, got ${reward}`);
+    assert.deepEqual(ofType(events, 'rewardPiece'), [{ type: 'rewardPiece', seat: SOUTH, piece: reward, handIndex: 0 }]);
+  });
+
+  it('refills from the bag when the move completes no line', () => {
+    const state = buildState({ rows: ROW_FIVE, hpRows: ROW_FIVE_HP, hands: { [SOUTH]: HAND } });
+    state.players[SOUTH].bag.queue = ['T'];
+    // An O beside South's column: legal, completes nothing.
+    const { state: after, events } = move(state, SOUTH, { handIndex: 1, rotation: 0, x: 6, y: 7 }, 1000);
+    assert.equal(after.players[SOUTH].hand[1], 'T');
+    assert.equal(ofType(events, 'rewardPiece').length, 0);
   });
 });
 

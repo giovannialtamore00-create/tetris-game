@@ -40,17 +40,17 @@ describe('personal clock', () => {
 
   it('does not change a grey cluster when a player touching it times out', () => {
     const rows = [
-      '#....N....#',
+      '#....n....#',
       '...........',
       '...........',
       '...........',
       '...........',
-      '..........E',
+      '..........e',
       '...........',
       '...........',
-      'WWWWWG.....',
+      'wWWWWG.....',
       '.....S.....',
-      '#....S....#',
+      '#....s....#',
     ];
     const before = buildState({ rows, players: { [SOUTH]: { remainingMs: 4_000 } } });
     const { state } = tick(before, 4_000);

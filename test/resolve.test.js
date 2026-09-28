@@ -12,7 +12,7 @@ const { parseBoard, at } = require('./helpers');
 function resolve(rows, { hpRows, statuses = {} } = {}) {
   const board = parseBoard(rows, hpRows);
   const players = [0, 1, 2, 3].map((seat) => ({ seat, status: statuses[seat] || ALIVE }));
-  const decisions = resolveClusters(board.owner, board.hp);
+  const decisions = resolveClusters(board.owner, board.hp, board.root);
   assert.deepEqual(checkInvariants({ ...board, players }), []);
   const statusOf = (seat) => players[seat].status;
   return { ...board, decisions, statusOf };
@@ -33,7 +33,7 @@ describe('cluster resolution: outcomes', () => {
       '...........',
       '...........',
       '.....S.....',
-      '#....S....#',
+      '#....s....#',
     ]);
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].outcome, 'detonate');
@@ -51,12 +51,12 @@ describe('cluster resolution: outcomes', () => {
         '...........',
         '...........',
         '...........',
-        'WWWWWSS....',
+        'wWWWWSS....',
         '...........',
         '...........',
         '...........',
         '.....S.....',
-        '#....S....#',
+        '#....s....#',
       ],
       { hpRows: ['', '', '', '', '', '.....23....', '', '', '', '', ''].map((r) => r.padEnd(11, '.')) },
     );
@@ -74,12 +74,12 @@ describe('cluster resolution: outcomes', () => {
       '...........',
       '...........',
       '...........',
-      'WWWWWSSEEEE',
+      'wWWWWSSEEEe',
       '...........',
       '...........',
       '...........',
       '.....S.....',
-      '#....S....#',
+      '#....s....#',
     ]);
     assert.equal(decisions[0].outcome, 'grey');
     assert.deepEqual(decisions[0].touching, [WEST, EAST]);
@@ -95,12 +95,12 @@ describe('cluster resolution: outcomes', () => {
         '...........',
         '...........',
         '...........',
-        'WWWWWSS....',
+        'wWWWWSS....',
         '...........',
         '...........',
         '...........',
         '.....S.....',
-        '#....S....#',
+        '#....s....#',
       ],
       { statuses: { [WEST]: TIMED_OUT } },
     );
@@ -114,17 +114,17 @@ describe('cluster resolution: merging with grey', () => {
   // Grey (3,5) touches North at (2,5) and West at (3,4). South's orphan at
   // (4,5)-(5,5) touches no anchored colour, only the grey block.
   const WITH_GREY = [
-    '#....N....#',
+    '#....n....#',
     '.....N.....',
     '.....N.....',
-    'WWWWWG.....',
+    'wWWWWG.....',
     '.....S.....',
     '.....S.....',
     '...........',
     '...........',
     '...........',
     '...........',
-    '#....S....#',
+    '#....s....#',
   ];
   const ORPHAN_HP = ['', '', '', '', '.....2.....', '.....3.....', '', '', '', '', ''].map((r) =>
     r.padEnd(11, '.'),
@@ -144,7 +144,7 @@ describe('cluster resolution: merging with grey', () => {
 
   it('same orphan without the grey neighbour detonates', () => {
     const rows = [...WITH_GREY];
-    rows[3] = 'WWWWW......';
+    rows[3] = 'wWWWW......';
     const { owner, decisions, statusOf } = resolve(rows, { hpRows: ORPHAN_HP });
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].outcome, 'detonate');
@@ -155,7 +155,7 @@ describe('cluster resolution: merging with grey', () => {
   it('merged cluster counts touching colours from both parts', () => {
     // The orphan part alone touches only East at (5,6): on its own it would convert.
     const rows = [...WITH_GREY];
-    rows[5] = '.....SEEEEE';
+    rows[5] = '.....SEEEEe';
     const { owner, decisions } = resolve(rows);
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].outcome, 'grey');
@@ -169,10 +169,10 @@ describe('cluster resolution: grey re-evaluation', () => {
     // West's link at (3,2) was destroyed: (3,3)-(3,4) are orphaned, merge with
     // the grey block, and the merged cluster now touches only North.
     const { owner, decisions, statusOf } = resolve([
-      '#....N....#',
+      '#....n....#',
       '.....N.....',
       '.....N.....',
-      'WW.WWG.....',
+      'wW.WWG.....',
       '...........',
       '...........',
       '...........',
@@ -190,10 +190,10 @@ describe('cluster resolution: grey re-evaluation', () => {
 
   it('detonates a grey cluster whose colours have all been cut away, paying the current mover', () => {
     const { owner, decisions, statusOf } = resolve([
-      '#....N....#',
+      '#....n....#',
       '...........',
       '.....N.....',
-      'WW.WWG.....',
+      'wW.WWG.....',
       '...........',
       '...........',
       '...........',
@@ -211,10 +211,10 @@ describe('cluster resolution: grey re-evaluation', () => {
 
   it('keeps a grey cluster grey while it touches 2+ colours', () => {
     const { owner, decisions } = resolve([
-      '#....N....#',
+      '#....n....#',
       '.....N.....',
       '.....N.....',
-      'WWWWWG.....',
+      'wWWWWG.....',
       '...........',
       '...........',
       '...........',
@@ -233,10 +233,10 @@ describe('cluster resolution: dulled regions', () => {
   it('counts an anchored dulled region as a touching colour', () => {
     const { owner, decisions } = resolve(
       [
-        '#....N....#',
+        '#....n....#',
         '.....N.....',
         '.....N.....',
-        'WWWWWG.....',
+        'wWWWWG.....',
         '...........',
         '...........',
         '...........',
@@ -257,7 +257,7 @@ describe('cluster resolution: dulled regions', () => {
         '#.........#',
         '...........',
         '...........',
-        'WW.WW......',
+        'wW.WW......',
         '...........',
         '...........',
         '...........',

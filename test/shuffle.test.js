@@ -4,6 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { SOUTH, WEST, NORTH, EAST, TIMED_OUT } = require('../src/core/constants');
 const game = require('../src/core/game');
+const { SPECIAL_PIECES, drawSpecialPiece } = require('../src/core/pieces');
 const {
   buildState,
   fullBoardRows,
@@ -18,12 +19,19 @@ const {
 const O_ON_PYRAMID = { handIndex: 0, rotation: 0, x: 5, y: 6 };
 const O_HAND = ['O', 'O', 'O', 'O'];
 
-// A full board with a 1x4 horizontal gap at (8,3)-(8,6) that only South
-// borders: South can fill it with an I, and with nothing else.
-function boardWithSouthGap() {
+// A full board with a single-cell hole at (8,4) that only South borders: only
+// the 1x1 fits it.
+function boardWithSouthHole() {
   const rows = fullBoardRows();
-  rows[8] = rows[8].slice(0, 3) + '....' + rows[8].slice(7);
+  rows[8] = rows[8].slice(0, 4) + '.' + rows[8].slice(5);
   return rows;
+}
+
+// A bag RNG state whose next special-piece pick is `piece`.
+function rngStateGiving(piece) {
+  for (let s = 0; ; s++) {
+    if (drawSpecialPiece({ rng: { s }, queue: [] }) === piece) return s;
+  }
 }
 
 describe('shuffle offer', () => {
@@ -65,13 +73,24 @@ describe('shuffle offer', () => {
     assert.deepEqual(game.shuffle(state, WEST, 1_000), { ok: false, error: 'notAlive' });
   });
 
+  it('deals 3 bag pieces and 1 special piece in the last slot', () => {
+    const state = buildState({ players: { [SOUTH]: { shuffleAvailable: true } } });
+    state.players[SOUTH].bag.queue = ['I', 'T', 'Z'];
+    const { state: after } = shuffle(state, SOUTH, 1_000);
+    const hand = after.players[SOUTH].hand;
+    assert.deepEqual(hand.slice(0, 3), ['I', 'T', 'Z']);
+    assert.ok(SPECIAL_PIECES.includes(hand[3]), `expected a special piece, got ${hand[3]}`);
+  });
+
   it('force-passes a player who shuffles into a stuck hand on their own turn', () => {
     const state = buildState({
-      rows: boardWithSouthGap(),
-      hands: { [SOUTH]: ['I', 'O', 'O', 'O'] },
+      rows: boardWithSouthHole(),
+      hands: { [SOUTH]: ['M', 'O', 'O', 'O'] },
       players: { [SOUTH]: { shuffleAvailable: true, remainingMs: 40_000 } },
     });
-    state.players[SOUTH].bag.queue = ['O', 'O', 'O', 'O'];
+    // Three Os from the bag and a 1x2 as the special piece: none fits a 1-cell hole.
+    state.players[SOUTH].bag.queue = ['O', 'O', 'O'];
+    state.players[SOUTH].bag.rng.s = rngStateGiving('D');
 
     const { state: after, events } = shuffle(state, SOUTH, 3_000);
     const passes = ofType(events, 'passed');

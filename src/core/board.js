@@ -45,18 +45,6 @@ function seatCell(seat, depth, lateral) {
   }
 }
 
-// EDGE_CELLS[seat] -> the 9 cells of the seat's edge line (corners excluded).
-const EDGE_CELLS = [];
-const IS_EDGE = [];
-for (let seat = 0; seat < SEAT_COUNT; seat++) {
-  const cells = [];
-  for (let lateral = 1; lateral < LAST; lateral++) cells.push(seatCell(seat, 0, lateral));
-  EDGE_CELLS.push(cells);
-  const flags = new Array(CELL_COUNT).fill(false);
-  for (const i of cells) flags[i] = true;
-  IS_EDGE.push(flags);
-}
-
 // Root pyramid, seat-relative: [depth, firstLateral, lastLateral, hp].
 const PYRAMID = [
   [0, 3, 7, 3],
@@ -64,13 +52,16 @@ const PYRAMID = [
   [2, 5, 5, 1],
 ];
 
+// `root[i]` marks a surviving starting piece (§6). Only the starting pyramid
+// sets it; destroying the piece clears it, and nothing ever sets it again.
 function createEmptyBoard() {
   const owner = new Array(CELL_COUNT).fill(EMPTY);
   const hp = new Array(CELL_COUNT).fill(0);
+  const root = new Array(CELL_COUNT).fill(false);
   for (let i = 0; i < CELL_COUNT; i++) {
     if (isCorner(rowOf(i), colOf(i))) owner[i] = BLOCKED;
   }
-  return { owner, hp };
+  return { owner, hp, root };
 }
 
 function createStartingBoard() {
@@ -81,6 +72,7 @@ function createStartingBoard() {
         const i = seatCell(seat, depth, lateral);
         board.owner[i] = seat;
         board.hp[i] = hp;
+        board.root[i] = true;
       }
     }
   }
@@ -131,8 +123,6 @@ function countBlocks(owner, seat) {
 
 module.exports = {
   NEIGHBOURS,
-  EDGE_CELLS,
-  IS_EDGE,
   isCorner,
   seatCell,
   createEmptyBoard,

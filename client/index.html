@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tetris hot-seat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="game-clock" id="gameClock">10:00</div>
+    <div class="status" id="status"></div>
+    <div class="controls">
+      <button id="pauseBtn" type="button" title="Freeze all clocks (P)">Pause</button>
+      <button id="newGameBtn" type="button">New game</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="board-area">
+      <div class="board-frame" id="boardFrame">
+        <div class="edge-label north">North</div>
+        <div class="edge-label west">West</div>
+        <div class="board" id="board" aria-label="Game board"></div>
+        <div class="edge-label east">East</div>
+        <div class="edge-label south">South</div>
+      </div>
+      <p class="hint" id="hint"></p>
+      <p class="help">
+        Pick a piece from the active player's hand (or press 1–4) ·
+        <kbd>R</kbd> or right-click to rotate, <kbd>Shift</kbd>+<kbd>R</kbd> to rotate back ·
+        click the board to place · <kbd>Esc</kbd> to drop the piece · <kbd>P</kbd> to pause
+      </p>
+    </section>
+
+    <aside class="sidebar">
+      <div class="players" id="players"></div>
+      <div class="log-panel">
+        <h2>Events</h2>
+        <ol class="log" id="log"></ol>
+      </div>
+    </aside>
+  </main>
+
+  <div class="overlay" id="overlay" hidden>
+    <div class="overlay-card">
+      <h2 id="overlayTitle">Game over</h2>
+      <p id="overlayReason"></p>
+      <table class="standings">
+        <thead><tr><th>#</th><th>Player</th><th>Points</th><th>Status</th><th>Blocks</th></tr></thead>
+        <tbody id="standings"></tbody>
+      </table>
+      <div class="overlay-actions">
+        <button id="overlayClose" type="button">View board</button>
+        <button id="overlayNew" type="button">New game</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="core.bundle.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

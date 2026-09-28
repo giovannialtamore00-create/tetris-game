@@ -2,14 +2,15 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { SOUTH, WEST, NORTH, EAST, BLOCKED } = require('../src/core/constants');
+const { SOUTH, WEST, NORTH, EAST, BLOCKED, EMPTY } = require('../src/core/constants');
 const {
   createStartingBoard,
   pieceCells,
   isLegalPlacement,
+  hasLegalMove,
   countBlocks,
 } = require('../src/core/board');
-const { parseBoard, at } = require('./helpers');
+const { parseBoard, fullBoardRows, at } = require('./helpers');
 
 const LONE_SOUTH_ROOT = [
   '#.........#',
@@ -82,6 +83,25 @@ describe('placement legality', () => {
     const board = parseBoard(LONE_SOUTH_ROOT);
     assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('O', 0, 1, 9)), false);
     assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('O', 0, 3, 9)), true);
+  });
+
+  it('lets a 1x1 fill a one-cell hole that no tetromino fits', () => {
+    const board = parseBoard(fullBoardRows());
+    board.owner[at(8, 4)] = EMPTY;
+    board.hp[at(8, 4)] = 0;
+    assert.equal(hasLegalMove(board.owner, SOUTH, ['I', 'O', 'T', 'S', 'Z', 'J', 'L']), false);
+    assert.equal(hasLegalMove(board.owner, SOUTH, ['D', 'L3']), false);
+    assert.equal(hasLegalMove(board.owner, SOUTH, ['M']), true);
+    assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('M', 0, 4, 8)), true);
+  });
+
+  it('holds the small pieces to the same rule: they must touch an own block', () => {
+    const board = parseBoard(LONE_SOUTH_ROOT);
+    assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('M', 0, 1, 9)), false);
+    assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('M', 0, 5, 9)), true);
+    assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('D', 1, 4, 8)), false);
+    assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('D', 1, 5, 8)), true);
+    assert.equal(isLegalPlacement(board.owner, SOUTH, pieceCells('L3', 0, 5, 8)), true);
   });
 
   it('rejects covering a corner even when touching an own block', () => {

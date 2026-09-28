@@ -17,30 +17,36 @@ const { checkInvariants } = require('../src/core/invariants');
 // Board maps are 11 strings of 11 characters, row 0 (North) first:
 //   '#' corner   '.' empty   'G' grey
 //   'S' South (0)   'W' West (1)   'N' North (2)   'E' East (3)
+// A lowercase seat letter ('s', 'w', 'n', 'e') is a surviving starting piece,
+// i.e. a root; an uppercase letter is a block placed later.
 // Optional HP maps use digits 1-3 ('.' or any other character = default 1).
-const OWNER_CHARS = { '.': EMPTY, '#': BLOCKED, G: GREY, S: 0, W: 1, N: 2, E: 3 };
+const OWNER_CHARS = { '.': EMPTY, '#': BLOCKED, G: GREY, S: 0, W: 1, N: 2, E: 3, s: 0, w: 1, n: 2, e: 3 };
 
 function parseBoard(rows, hpRows) {
   assert.equal(rows.length, SIZE, 'board map needs 11 rows');
   const owner = [];
   const hp = [];
+  const root = [];
   for (let r = 0; r < SIZE; r++) {
     assert.equal(rows[r].length, SIZE, `row ${r} needs 11 characters`);
     for (let c = 0; c < SIZE; c++) {
-      const o = OWNER_CHARS[rows[r][c]];
-      assert.notEqual(o, undefined, `unknown board character '${rows[r][c]}' at (${r},${c})`);
+      const ch = rows[r][c];
+      const o = OWNER_CHARS[ch];
+      assert.notEqual(o, undefined, `unknown board character '${ch}' at (${r},${c})`);
       assert.equal(o === BLOCKED, isCorner(r, c), `corner mismatch at (${r},${c})`);
       owner.push(o);
+      root.push('swne'.includes(ch));
       const occupied = o >= 0 || o === GREY;
       const digit = hpRows ? Number(hpRows[r][c]) : NaN;
       hp.push(occupied ? (digit >= 1 && digit <= 3 ? digit : 1) : 0);
     }
   }
-  return { owner, hp };
+  return { owner, hp, root };
 }
 
 // A completely full, valid board: every cell belongs to the seat whose edge is
-// nearest (ties go to the lower seat), which keeps every region anchored.
+// nearest (ties go to the lower seat). Each seat's edge cells are starting
+// pieces, which keeps every region anchored.
 function fullBoardRows() {
   const chars = ['S', 'W', 'N', 'E'];
   const rows = [];
@@ -52,7 +58,8 @@ function fullBoardRows() {
         continue;
       }
       const dist = [SIZE - 1 - r, c, r, SIZE - 1 - c];
-      row += chars[dist.indexOf(Math.min(...dist))];
+      const ch = chars[dist.indexOf(Math.min(...dist))];
+      row += Math.min(...dist) === 0 ? ch.toLowerCase() : ch;
     }
     rows.push(row);
   }

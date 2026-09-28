@@ -9,7 +9,7 @@ const {
   DEFAULT_CONFIG,
 } = require('./constants');
 const { deriveSeed, createRng, nextInt } = require('./rng');
-const { createBag, drawPiece } = require('./pieces');
+const { createBag, drawPiece, drawSpecialPiece } = require('./pieces');
 const {
   createStartingBoard,
   pieceCells,
@@ -34,7 +34,7 @@ const clone = (state) => structuredClone(state);
 
 function createGame({ seed = 1, now = 0, config = {} } = {}) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
-  const { owner, hp } = createStartingBoard();
+  const { owner, hp, root } = createStartingBoard();
 
   const players = [];
   for (let seat = 0; seat < SEAT_COUNT; seat++) {
@@ -57,6 +57,7 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
     config: cfg,
     owner,
     hp,
+    root,
     players,
     phase: 'turn', // 'turn' | 'shuffleWindow' | 'over'
     activeSeat: null,
@@ -266,6 +267,7 @@ function applyMove(state, seat, move, now) {
       hits.push({ cell: i, hits: count, hp: s.hp[i] });
       if (s.hp[i] === 0) {
         s.owner[i] = EMPTY;
+        s.root[i] = false; // a destroyed starting piece is gone for good
         const points = formerOwner === seat ? 2 : 1;
         award(seat, points);
         destroyed.push({ cell: i, owner: formerOwner, points });
@@ -277,7 +279,7 @@ function applyMove(state, seat, move, now) {
   }
 
   // Steps 6-7: anchoring and cluster resolution.
-  for (const decision of resolveClusters(s.owner, s.hp)) {
+  for (const decision of resolveClusters(s.owner, s.hp, s.root)) {
     const payout = clusterPoints(decision, seat, statusOf);
     if (payout) award(payout.seat, payout.points);
     const points = payout ? payout.points : 0;
@@ -300,10 +302,16 @@ function applyMove(state, seat, move, now) {
     }
   }
 
-  // Step 9: mover bookkeeping.
+  // Step 9: mover bookkeeping. Completing a line is rewarded by refilling the
+  // played slot with a special piece instead of a bag draw (§3).
   mover.shuffleAvailable = false;
   if (mover.status === ALIVE) {
-    mover.hand[handIndex] = drawPiece(mover.bag);
+    if (lines.length > 0) {
+      mover.hand[handIndex] = drawSpecialPiece(mover.bag);
+      events.push({ type: 'rewardPiece', seat, piece: mover.hand[handIndex], handIndex });
+    } else {
+      mover.hand[handIndex] = drawPiece(mover.bag);
+    }
     addBonus(mover, cfg.moveBonusMs);
   }
   s.turnsTakenThisRound[seat] = true;
@@ -323,8 +331,10 @@ function shuffle(state, seat, now) {
   const s = clone(state);
   const events = [];
   const p = s.players[seat];
+  // A shuffled hand is bag draws plus one special piece in the last slot (§8).
   p.hand = [];
-  for (let k = 0; k < s.config.handSize; k++) p.hand.push(drawPiece(p.bag));
+  for (let k = 0; k < s.config.handSize - 1; k++) p.hand.push(drawPiece(p.bag));
+  p.hand.push(drawSpecialPiece(p.bag));
   p.shuffleAvailable = false;
   events.push({ type: 'shuffled', seat, hand: [...p.hand], at: now });
 

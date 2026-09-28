@@ -38,14 +38,20 @@ Each player starts with a root pyramid centred on their edge. For the South play
 | 9 | 4–6 | 2 |
 | 8 | 5 | 1 |
 
-The other edges use the same shape rotated to face inward.
+The other edges use the same shape rotated to face inward. These nine **starting pieces** are the player's only roots (§6).
 
 ## 3. Hands and pieces
 
-- Pieces are the 7 standard tetrominoes, in 4 rotations each.
-- Each player has a **hand of 4 pieces**, dealt from their own shuffled "7-bag" (all 7 pieces in random order, then reshuffled). This prevents long droughts of any one piece.
+- There are **10 pieces**: the 7 standard tetrominoes plus three small **special pieces**, a 1×1 single block, a 1×2 domino and a 3-cell small L. Every piece has 4 rotations (rotations that look identical still count as separate rotations).
+- *Rationale:* with no gravity, holes of 1–3 cells appear that no tetromino can fill; the small pieces fill them.
+- The piece list lives in one config file (`src/core/pieceSet.js`), which also marks which pieces are special.
+- Each player has a **hand of 4 pieces**, dealt from their own shuffled **bag** holding each of the 10 pieces once per cycle (all 10 in random order, then reshuffled). This prevents long droughts of any one piece.
 - All hands are visible to all players.
-- After a player places a piece, their hand is refilled to 4.
+- After a player places a piece, the slot they played from is refilled from the bag, except after a line clear (below).
+- **Special piece picks** are made at random from the three special pieces, using the player's seeded random generator, **outside the bag**: they never remove a piece from the bag, so the bag cycle is unaffected. A player receives one:
+  - when they **shuffle** their hand (§8): the new hand is 3 pieces from the bag plus 1 special piece; and
+  - as a **reward for completing a line**: a move that completes at least one line refills the played slot with a special piece instead of a bag draw (one reward per move, however many lines it completes).
+- Special pieces follow every other rule, like any other piece.
 
 ## 4. Placing a piece
 
@@ -70,7 +76,11 @@ Players may pick up, hover and rotate pieces during other players' turns. This i
 
 ### Anchoring
 
-A player's **roots** are the blocks they own on their own edge line. A block is **anchored** if it is connected to one of its owner's roots through an orthogonal chain of blocks with the same owner. This applies equally to living and timed-out players, so a dulled region stays in place for as long as it remains connected to its edge.
+A player's **roots** are their surviving **starting pieces**: the pyramid blocks they were given at the start of the game. A block is **anchored** if it is a root, or is connected to one of its owner's roots through an orthogonal chain of blocks with the same owner.
+
+- A block placed later is **never** a root, even on the player's own edge. It must connect through the player's own blocks to a surviving starting piece.
+- Once a starting piece is destroyed it is gone. A block placed in that cell later is an ordinary block, not a root.
+- A timed-out player's dulled starting pieces stay roots, so their dulled structure stays in place for as long as it remains connected to them.
 
 ### Orphans
 
@@ -123,7 +133,7 @@ On each turn, the active player does one of the following:
 
 ### Shuffle offer
 
-- A shuffle offer lets the player replace their whole hand with 4 new pieces drawn from their bag, **once**.
+- A shuffle offer lets the player replace their whole hand, **once**, with 3 pieces drawn from their bag plus 1 special piece (§3).
 - It can be used at any time: during their own turn or anyone else's.
 - An unused offer stays available across any number of turns and passes. It disappears when the player makes a legal move, or when it is used.
 - If a player's hand is still stuck after shuffling, their next forced pass grants a fresh offer. Offers do not stack.
@@ -144,7 +154,7 @@ On each turn, the active player does one of the following:
 
 ### Timing out
 
-A player whose personal clock runs out is eliminated with status **timed out**. Their blocks are not removed, greyed or reassigned: they stay on the board as dulled blocks, still anchored to their edge, still able to be hit and destroyed, and still counting as a touching colour. If a later move cuts part of a dulled region off, that part is orphaned and resolved like any other cluster.
+A player whose personal clock runs out is eliminated with status **timed out**. Their blocks are not removed, greyed or reassigned: they stay on the board as dulled blocks, still anchored to their starting pieces, still able to be hit and destroyed, and still counting as a touching colour. If a later move cuts part of a dulled region off, that part is orphaned and resolved like any other cluster.
 
 ## 10. Rounds
 
@@ -195,7 +205,7 @@ The server is authoritative. Clients send intents; the server validates, applies
 
 | Part | Fields |
 |---|---|
-| Board | `owner[121]`: `EMPTY`, `BLOCKED`, `GREY` or a player id. `hp[121]`: 0–3. |
+| Board | `owner[121]`: `EMPTY`, `BLOCKED`, `GREY` or a player id. `hp[121]`: 0–3. `root[121]`: true for a surviving starting piece. |
 | Player | `seat`, `status` (`alive` / `eliminated` / `timedOut`), `score`, `hand[4]`, `bag` (seeded RNG state), `remainingMs`, `capMs`, `shuffleAvailable` |
 | Turn | `activeSeat`, `turnStartedAt`, `turnsTakenThisRound`, `forcedPassesThisRound` |
 | Game | `endsAt`, `shuffleWindowEndsAt`, `over`, `result` |
@@ -203,6 +213,7 @@ The server is authoritative. Clients send intents; the server validates, applies
 - Blocks never move, so a cell *is* its block; no block ids are needed.
 - Owner and HP live in separate arrays. Ownership changes write only `owner`; hits write only `hp`; only destruction clears both. This is what makes HP persist through ownership changes.
 - "Dulled" is not stored per cell: a cell is dulled when its owner's status is `timedOut`.
+- `root` is set only by the starting pyramid and cleared when that piece is destroyed; nothing else ever sets it. A root is always anchored, so it is never orphaned and never changes owner.
 - All randomness comes from seeded generators stored in the state, so any game can be replayed exactly from its seed and move list.
 
 ## 15. Resolving a move
@@ -213,18 +224,18 @@ The server is authoritative. Clients send intents; the server validates, applies
 2. **Charge time** to the mover's clock.
 3. **Place** the piece at 1 HP.
 4. **Line hits**: find completed lines (§5) and apply 1 hit per completed line containing each cell.
-5. **Destructions**: empty cells at 0 HP; score 2 per mover-owned block, 1 per other block.
-6. **Anchoring**: breadth-first search from each player's roots through their own blocks.
+5. **Destructions**: empty cells at 0 HP and clear their `root` flag; score 2 per mover-owned block, 1 per other block.
+6. **Anchoring**: breadth-first search from each player's surviving starting pieces through their own blocks.
 7. **Cluster resolution**: mark unanchored owned cells as ownerless, flood-fill all ownerless and grey cells into clusters, count touching colours, and apply detonate / convert / grey to all clusters at once. Score as in §7.
 8. **Eliminations**: living players with zero blocks become `eliminated`.
-9. **Mover bookkeeping**: refill hand, +1 s bonus, clear `shuffleAvailable`, record the turn in `turnsTakenThisRound`.
+9. **Mover bookkeeping**: refill the played slot (from the bag, or with a special piece if step 4 completed a line), +1 s bonus, clear `shuffleAvailable`, record the turn in `turnsTakenThisRound`.
 10. **Game over?** If at most 1 player is alive, end the game.
 11. **Round end?** If every living player has taken a turn, award passive points and decay caps; open a shuffle window if every living player was force-passed.
 12. **Advance** to the next living seat clockwise and start their turn (§16).
 
 Step 7 needs only one pass. Clusters never touch each other (touching cells would be one cluster), detonation only empties cells that anchor no one, and a converted cluster is anchored the moment it converts because it touches its new owner's anchored blocks. Nothing in steps 6–7 can complete a line or cut off another block.
 
-`applyMove` returns the new state plus an ordered list of events (`placed`, `hit`, `destroyed`, `detonated`, `converted`, `greyed`, `scored`, `eliminated`, `roundEnded`, `turnStarted`, `passed`, `timedOut`, `shuffled`, `gameOver`) that clients use to animate the result.
+`applyMove` returns the new state plus an ordered list of events (`placed`, `hit`, `destroyed`, `detonated`, `converted`, `greyed`, `scored`, `rewardPiece`, `eliminated`, `roundEnded`, `turnStarted`, `passed`, `timedOut`, `shuffled`, `gameOver`) that clients use to animate the result.
 
 ## 16. Turn loop
 
@@ -233,7 +244,7 @@ Step 7 needs only one pass. Clusters never touch each other (touching cells woul
 1. Enumerate every legal placement of the player's hand (at most 4 pieces × 4 rotations × 121 positions). If there are none, force-pass them (§8) and advance.
 2. Otherwise the turn is live: set `turnStartedAt = now`. The turn now has an AFK deadline (`turnStartedAt + 10 s`) and a personal clock deadline (`turnStartedAt + remainingMs`).
 
-`shuffle(state, seat, now)` may be called at any time by a player with `shuffleAvailable`. It draws a new hand, clears the offer, and, if called during that player's own live turn and the new hand is stuck, force-passes them.
+`shuffle(state, seat, now)` may be called at any time by a player with `shuffleAvailable`. It draws a new hand (3 from the bag, then 1 special piece in the last slot), clears the offer, and, if called during that player's own live turn and the new hand is stuck, force-passes them.
 
 ## 17. Time handling
 
@@ -258,7 +269,8 @@ Plain JavaScript (CommonJS), tested with Node's built-in `node:test`; no depende
 | Module | Contents |
 |---|---|
 | `rng` | Seeded random number generator |
-| `pieces` | Tetromino shapes, rotations, 7-bag |
+| `pieceSet` | The piece list: shapes and which are special (the one place to tune pieces) |
+| `pieces` | Rotations, the bag, special-piece picks |
 | `board` | Layout, blocked corners, pyramids, placement legality, legal-move enumeration |
 | `lines` | Completed-line detection and hits |
 | `resolve` | Anchoring and cluster resolution |
@@ -267,7 +279,9 @@ Plain JavaScript (CommonJS), tested with Node's built-in `node:test`; no depende
 
 Tests use hand-built boards and a fake clock. After every step of every test, they assert the invariants from §6: every owned block is anchored, and every grey cluster touches at least 2 colours. Named cases include:
 
+- **Roots**: *a block placed later on the player's own edge, cut off from the starting pieces, detonates*; a destroyed starting piece's cell is not a root when refilled.
 - **Resolution**: each of the 0 / 1 / 2+ outcomes; conversion to a timed-out player (dulled, no points); a dulled region breaking off; *fresh orphan merges with adjacent grey cluster before counting colours*; *same orphan without the grey neighbour detonates*; *merged cluster counts touching colours from both parts*; a grey cluster re-evaluated after a remote move removes one of its colours.
+- **Pieces**: all 10 shapes and their rotations; each dealt once per bag cycle; special picks leave the bag untouched; a 1×1 fills a one-cell hole no tetromino fits; small pieces must touch an own block; a shuffle deals 3 bag pieces plus 1 special; a line clear refills the played slot with a special piece, and a move without one refills from the bag.
 - **Lines and scoring**: 2 hits at a crossing; 2 points for the mover's own block destroyed by a line; no points for HP-only hits; frozen scores for players who are not alive.
 - **Turns and clocks**: AFK pass versus personal-clock timeout and their precedence; bonus capping; cap decay; forced pass and +5 s.
 - **Shuffle**: offer persists across stuck turns and AFK passes; offer cleared on a legal move; one use per offer, with a fresh offer on the next forced pass.
@@ -280,6 +294,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 |---|---|
 | Board size | 11 × 11 |
 | Players | 4 (lobby starts when full) |
+| Pieces | 7 tetrominoes + 1×1, 1×2, small L (special), in `src/core/pieceSet.js` |
 | Hand size | 4 |
 | Placed block HP | 1 |
 | Personal clock start and cap | 60 s |

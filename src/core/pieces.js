@@ -1,19 +1,10 @@
 'use strict';
 
-const { createRng, shuffleInPlace } = require('./rng');
+const { createRng, nextInt, shuffleInPlace } = require('./rng');
+const { PIECE_SET } = require('./pieceSet');
 
-// Base shapes as [row, col] offsets.
-const SHAPES = {
-  I: [[0, 0], [0, 1], [0, 2], [0, 3]],
-  O: [[0, 0], [0, 1], [1, 0], [1, 1]],
-  T: [[0, 0], [0, 1], [0, 2], [1, 1]],
-  S: [[0, 1], [0, 2], [1, 0], [1, 1]],
-  Z: [[0, 0], [0, 1], [1, 1], [1, 2]],
-  J: [[0, 0], [1, 0], [1, 1], [1, 2]],
-  L: [[0, 2], [1, 0], [1, 1], [1, 2]],
-};
-
-const PIECES = Object.keys(SHAPES);
+const PIECES = Object.keys(PIECE_SET);
+const SPECIAL_PIECES = PIECES.filter((piece) => PIECE_SET[piece].special);
 
 function normalize(cells) {
   const minR = Math.min(...cells.map(([r]) => r));
@@ -31,12 +22,12 @@ function rotateClockwise(cells) {
 // exactly 4 rotations (some identical), so rotation indices 0-3 are always valid.
 const ROTATIONS = {};
 for (const piece of PIECES) {
-  const rotations = [normalize(SHAPES[piece])];
+  const rotations = [normalize(PIECE_SET[piece].cells)];
   for (let k = 1; k < 4; k++) rotations.push(rotateClockwise(rotations[k - 1]));
   ROTATIONS[piece] = rotations;
 }
 
-// 7-bag: all seven pieces in random order, reshuffled when exhausted.
+// Bag: every piece in the set once, in random order, reshuffled when exhausted.
 function createBag(seed) {
   return { rng: createRng(seed), queue: [] };
 }
@@ -46,4 +37,10 @@ function drawPiece(bag) {
   return bag.queue.shift();
 }
 
-module.exports = { PIECES, ROTATIONS, createBag, drawPiece };
+// A random special piece for shuffles and line-clear rewards. It is picked
+// outside the bag: the queue is untouched, so the bag cycle is unaffected.
+function drawSpecialPiece(bag) {
+  return SPECIAL_PIECES[nextInt(bag.rng, SPECIAL_PIECES.length)];
+}
+
+module.exports = { PIECES, SPECIAL_PIECES, ROTATIONS, createBag, drawPiece, drawSpecialPiece };

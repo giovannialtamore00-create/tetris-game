@@ -7,7 +7,7 @@ const { computeAnchored, findClusters, touchingColours } = require('./resolve');
 // Returns a list of violated invariants (empty when the state is consistent).
 // Used by the tests after every step; cheap enough to call in development too.
 function checkInvariants(state) {
-  const { owner, hp, players } = state;
+  const { owner, hp, root, players } = state;
   const errors = [];
   const at = (i) => `(${rowOf(i)},${colOf(i)})`;
 
@@ -17,6 +17,7 @@ function checkInvariants(state) {
     const occupied = o >= 0 || o === GREY;
     if (occupied && !(hp[i] >= 1 && hp[i] <= 3)) errors.push(`occupied cell ${at(i)} has hp ${hp[i]}`);
     if (!occupied && hp[i] !== 0) errors.push(`unoccupied cell ${at(i)} has hp ${hp[i]}`);
+    if (root[i] && o < 0) errors.push(`root flag on unowned cell ${at(i)}`);
     if (o >= 0) {
       const status = players[o].status;
       if (status !== ALIVE && status !== TIMED_OUT) errors.push(`eliminated seat ${o} owns ${at(i)}`);
@@ -25,7 +26,7 @@ function checkInvariants(state) {
     }
   }
 
-  const anchored = computeAnchored(owner);
+  const anchored = computeAnchored(owner, root);
   for (let i = 0; i < CELL_COUNT; i++) {
     if (owner[i] >= 0 && !anchored[i]) errors.push(`unanchored block of seat ${owner[i]} at ${at(i)}`);
   }

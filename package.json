@@ -4,7 +4,8 @@
   "description": "",
   "main": "src/core/index.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "client": "node scripts/build-client.js"
   },
   "keywords": [],
   "author": "",
