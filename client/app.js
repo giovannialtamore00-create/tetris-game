@@ -423,6 +423,7 @@
       case 'gameStarted': return 'Game clock started (10:00).';
       case 'turnStarted': return `${who(e.seat)}'s turn.`;
       case 'placed': return `${who(e.seat)} placed ${pieceName(e.piece)} at ${cellName(e.cells[0])}.`;
+      case 'lineClearBonus': return `${who(e.seat)} gains +${e.ms / 1000} s for ${e.lines} line clear(s) (up to the cap).`;
       case 'rewardPiece': return `${who(e.seat)} earned a special piece for the line clear: ${pieceName(e.piece)}.`;
       case 'linesCompleted': return `Line clear: ${e.lines.map(lineName).join(', ')}.`;
       case 'hit': return null;

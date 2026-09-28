@@ -128,7 +128,7 @@ All points go to the player who made the move, except conversion points, which g
 
 On each turn, the active player does one of the following:
 
-- **Makes a move.** Their clock is charged the time taken, then they receive +1 s.
+- **Makes a move.** Their clock is charged the time taken, then they receive +1 s, plus **+2 s for every line the move completes** (a row and a column completed together earn +4 s). Like every bonus, this never pushes the clock above its cap.
 - **Is force-passed.** If, at the start of their turn, no piece in their hand has any legal placement in any rotation, they are passed **immediately**. No time is charged, they receive **+5 s**, and they are granted a **shuffle offer**.
 - **Is AFK-passed.** If they make no move within **10 s** of their turn starting, they are passed. The 10 s is charged to their clock and they receive **no bonus**. Their hand does not change.
 
@@ -229,14 +229,14 @@ The server is authoritative. Clients send intents; the server validates, applies
 6. **Anchoring**: breadth-first search from each player's surviving starting pieces through their own blocks.
 7. **Cluster resolution**: mark unanchored owned cells as ownerless, flood-fill all ownerless and grey cells into clusters, count touching colours, and apply detonate / convert / grey to all clusters at once. Score as in §7.
 8. **Eliminations**: living players with zero blocks become `eliminated`.
-9. **Mover bookkeeping**: refill the played slot (from the bag, or with a special piece if step 4 completed a line), +1 s bonus, clear `shuffleAvailable`, record the turn in `turnsTakenThisRound`.
+9. **Mover bookkeeping**: refill the played slot (from the bag, or with a special piece if step 4 completed a line), +1 s bonus plus 2 s per completed line, clear `shuffleAvailable`, record the turn in `turnsTakenThisRound`.
 10. **Game over?** If at most 1 player is alive, end the game.
 11. **Round end?** If every living player has taken a turn, award passive points and decay caps; open a shuffle window if every living player was force-passed.
 12. **Advance** to the next living seat clockwise and start their turn (§16).
 
 Step 7 needs only one pass. Clusters never touch each other (touching cells would be one cluster), detonation only empties cells that anchor no one, and a converted cluster is anchored the moment it converts because it touches its new owner's anchored blocks. Nothing in steps 6–7 can complete a line or cut off another block.
 
-`applyMove` returns the new state plus an ordered list of events (`placed`, `hit`, `destroyed`, `detonated`, `converted`, `greyed`, `scored`, `rewardPiece`, `eliminated`, `roundEnded`, `turnStarted`, `passed`, `timedOut`, `shuffled`, `gameOver`) that clients use to animate the result.
+`applyMove` returns the new state plus an ordered list of events (`placed`, `hit`, `destroyed`, `detonated`, `converted`, `greyed`, `scored`, `rewardPiece`, `lineClearBonus`, `eliminated`, `roundEnded`, `turnStarted`, `passed`, `timedOut`, `shuffled`, `gameOver`) that clients use to animate the result.
 
 ## 16. Turn loop
 
@@ -284,7 +284,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 - **Resolution**: each of the 0 / 1 / 2+ outcomes; conversion to a timed-out player (dulled, no points); a dulled region breaking off; *fresh orphan merges with adjacent grey cluster before counting colours*; *same orphan without the grey neighbour detonates*; *merged cluster counts touching colours from both parts*; a grey cluster re-evaluated after a remote move removes one of its colours.
 - **Pieces**: all 10 shapes and their rotations; the bag deals each tetromino once per cycle and never a special piece; starting hands contain no special pieces; special picks leave the bag untouched; a 1×1 fills a one-cell hole no tetromino fits; small pieces must touch an own block; a shuffle deals 3 bag pieces plus 1 special; a line clear refills the played slot with a special piece, and a move without one refills from the bag.
 - **Lines and scoring**: 2 hits at a crossing; 2 points for the mover's own block destroyed by a line; no points for HP-only hits; frozen scores for players who are not alive.
-- **Turns and clocks**: AFK pass versus personal-clock timeout and their precedence; bonus capping; cap decay; forced pass and +5 s.
+- **Turns and clocks**: AFK pass versus personal-clock timeout and their precedence; bonus capping; +2 s per completed line (+4 s for a row and column together), within the cap; cap decay; forced pass and +5 s.
 - **Shuffle**: offer persists across stuck turns and AFK passes; offer cleared on a legal move; one use per offer, with a fresh offer on the next forced pass.
 - **Stuck table**: an all-pass round still awards passive points and decays caps; the shuffle window pauses personal clocks and closes early when everyone has shuffled; consecutive all-stuck rounds are paced by the window, never looped instantly.
 - **Ranking**: living beats not-living; all-living tie broken by blocks on board; all-not-living tie broken by dulled blocks; eliminated (0 blocks) loses to timed-out with dulled blocks; remaining tie is a draw; a three-way tie narrows step by step.
@@ -300,6 +300,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 | Placed block HP | 1 |
 | Personal clock start and cap | 60 s |
 | Move bonus | +1 s |
+| Line-clear bonus | +2 s per completed line |
 | Forced-pass bonus | +5 s |
 | Cap decay per round | 1 s |
 | AFK timeout | 10 s |

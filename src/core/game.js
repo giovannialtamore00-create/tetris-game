@@ -312,7 +312,10 @@ function applyMove(state, seat, move, now) {
     } else {
       mover.hand[handIndex] = drawPiece(mover.bag);
     }
-    addBonus(mover, cfg.moveBonusMs);
+    // +1 s for the move, plus 2 s for every line it completed (§8).
+    const lineBonusMs = lines.length * cfg.lineClearBonusMs;
+    if (lineBonusMs > 0) events.push({ type: 'lineClearBonus', seat, lines: lines.length, ms: lineBonusMs });
+    addBonus(mover, cfg.moveBonusMs + lineBonusMs);
   }
   s.turnsTakenThisRound[seat] = true;
 

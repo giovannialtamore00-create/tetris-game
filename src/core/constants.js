@@ -24,6 +24,7 @@ const DEFAULT_CONFIG = Object.freeze({
   placedHp: 1,
   clockStartMs: 60_000,
   moveBonusMs: 1_000,
+  lineClearBonusMs: 2_000, // per line the move completes
   forcedPassBonusMs: 5_000,
   capDecayMs: 1_000,
   afkMs: 10_000,

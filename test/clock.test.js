@@ -28,6 +28,62 @@ describe('personal clock', () => {
     assert.equal(state.players[SOUTH].remainingMs, 60_000);
   });
 
+  it('adds 2 s for every line the move completes, on top of the 1 s move bonus', () => {
+    // Row 5 and column 5 are full except (5,5): a 1x1 there completes both.
+    const rows = [
+      '#....n....#',
+      '.....N.....',
+      '.....N.....',
+      '.....N.....',
+      '.....N.....',
+      'wWWWW.EEEEe',
+      '.....S.....',
+      '.....S.....',
+      '.....S.....',
+      '.....S.....',
+      '#....s....#',
+    ];
+    const hpRows = [
+      '.....3.....', '', '', '', '', '3.........3', '', '', '', '', '.....3.....',
+    ].map((r) => r.padEnd(11, '.'));
+    const state = buildState({
+      rows,
+      hpRows,
+      hands: { [SOUTH]: ['M', 'O', 'O', 'O'] },
+      players: { [SOUTH]: { remainingMs: 40_000 } },
+    });
+    const { state: after, events } = move(state, SOUTH, { handIndex: 0, rotation: 0, x: 5, y: 5 }, 1_000);
+    // 40 s - 1 s taken + 1 s move bonus + 2 x 2 s for the row and the column.
+    assert.equal(after.players[SOUTH].remainingMs, 44_000);
+    assert.deepEqual(ofType(events, 'lineClearBonus'), [{ type: 'lineClearBonus', seat: SOUTH, lines: 2, ms: 4_000 }]);
+  });
+
+  it('keeps the line-clear bonus within the cap', () => {
+    const rows = [
+      '#..n......#',
+      '...........',
+      '...........',
+      '...........',
+      '...........',
+      'wWWWW.EEEEe',
+      '.....S.....',
+      '.....S.....',
+      '.....S.....',
+      '.....S.....',
+      '#....s....#',
+    ];
+    const hpRows = ['', '', '', '', '', '3.........3', '', '', '', '', '.....3.....'].map((r) => r.padEnd(11, '.'));
+    const state = buildState({
+      rows,
+      hpRows,
+      hands: { [SOUTH]: ['M', 'O', 'O', 'O'] },
+      players: { [SOUTH]: { remainingMs: 58_000 } },
+    });
+    const { state: after, events } = move(state, SOUTH, { handIndex: 0, rotation: 0, x: 5, y: 5 }, 0);
+    assert.equal(ofType(events, 'lineClearBonus')[0].ms, 2_000);
+    assert.equal(after.players[SOUTH].remainingMs, 60_000);
+  });
+
   it('times a player out when their clock runs out, leaving their blocks as dulled', () => {
     const before = southTurn({ remainingMs: 4_000 });
     const { state, events } = tick(before, 4_000);
