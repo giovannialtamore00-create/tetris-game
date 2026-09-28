@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   PIECES,
   SPECIAL_PIECES,
+  BAG_PIECES,
   ROTATIONS,
   createBag,
   drawPiece,
@@ -46,11 +47,12 @@ describe('pieces', () => {
     ]);
   });
 
-  it('the bag deals every piece exactly once per 10 draws', () => {
+  it('the bag deals each tetromino exactly once per 7 draws and never a special piece', () => {
+    assert.deepEqual([...BAG_PIECES].sort(), ['I', 'J', 'L', 'O', 'S', 'T', 'Z']);
     const bag = createBag(42);
     for (let round = 0; round < 3; round++) {
-      const drawn = Array.from({ length: PIECES.length }, () => drawPiece(bag));
-      assert.deepEqual([...drawn].sort(), [...PIECES].sort());
+      const drawn = Array.from({ length: 7 }, () => drawPiece(bag));
+      assert.deepEqual([...drawn].sort(), [...BAG_PIECES].sort());
     }
   });
 

@@ -3,9 +3,10 @@
 // The full piece list, in one place so it can be tuned. Shapes are [row, col]
 // offsets in rotation 0; the other rotations are derived by rotating clockwise.
 //
-// - Every shape is dealt exactly once per bag cycle (§3).
-// - Shapes marked `special` also form the pool that shuffle and line-clear
-//   reward pieces are picked from.
+// - Shapes not marked `special` make up the bag: each is dealt exactly once
+//   per bag cycle (§3).
+// - Shapes marked `special` are never dealt from the bag. They are only
+//   handed out by a shuffle or as a line-clear reward.
 const PIECE_SET = {
   I: { cells: [[0, 0], [0, 1], [0, 2], [0, 3]], special: false },
   O: { cells: [[0, 0], [0, 1], [1, 0], [1, 1]], special: false },

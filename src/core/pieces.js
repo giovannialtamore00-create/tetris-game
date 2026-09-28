@@ -5,6 +5,7 @@ const { PIECE_SET } = require('./pieceSet');
 
 const PIECES = Object.keys(PIECE_SET);
 const SPECIAL_PIECES = PIECES.filter((piece) => PIECE_SET[piece].special);
+const BAG_PIECES = PIECES.filter((piece) => !PIECE_SET[piece].special);
 
 function normalize(cells) {
   const minR = Math.min(...cells.map(([r]) => r));
@@ -27,13 +28,14 @@ for (const piece of PIECES) {
   ROTATIONS[piece] = rotations;
 }
 
-// Bag: every piece in the set once, in random order, reshuffled when exhausted.
+// Bag: every non-special piece once, in random order, reshuffled when
+// exhausted. Special pieces are never dealt from the bag.
 function createBag(seed) {
   return { rng: createRng(seed), queue: [] };
 }
 
 function drawPiece(bag) {
-  if (bag.queue.length === 0) bag.queue = shuffleInPlace([...PIECES], bag.rng);
+  if (bag.queue.length === 0) bag.queue = shuffleInPlace([...BAG_PIECES], bag.rng);
   return bag.queue.shift();
 }
 
@@ -43,4 +45,4 @@ function drawSpecialPiece(bag) {
   return SPECIAL_PIECES[nextInt(bag.rng, SPECIAL_PIECES.length)];
 }
 
-module.exports = { PIECES, SPECIAL_PIECES, ROTATIONS, createBag, drawPiece, drawSpecialPiece };
+module.exports = { PIECES, SPECIAL_PIECES, BAG_PIECES, ROTATIONS, createBag, drawPiece, drawSpecialPiece };

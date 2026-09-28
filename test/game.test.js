@@ -4,6 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { SEAT_COUNT, ALIVE } = require('../src/core/constants');
 const game = require('../src/core/game');
+const { BAG_PIECES } = require('../src/core/pieces');
 const { expectOk, ofType } = require('./helpers');
 
 describe('createGame', () => {
@@ -17,6 +18,14 @@ describe('createGame', () => {
       assert.equal(p.remainingMs, 60_000);
       assert.equal(p.capMs, 60_000);
       assert.equal(p.score, 0);
+    }
+  });
+
+  it('deals starting hands from the bag only, with no special pieces', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      for (const p of game.createGame({ seed }).state.players) {
+        assert.ok(p.hand.every((piece) => BAG_PIECES.includes(piece)), `seed ${seed}: ${p.hand}`);
+      }
     }
   });
 

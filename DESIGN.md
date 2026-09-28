@@ -45,7 +45,8 @@ The other edges use the same shape rotated to face inward. These nine **starting
 - There are **10 pieces**: the 7 standard tetrominoes plus three small **special pieces**, a 1×1 single block, a 1×2 domino and a 3-cell small L. Every piece has 4 rotations (rotations that look identical still count as separate rotations).
 - *Rationale:* with no gravity, holes of 1–3 cells appear that no tetromino can fill; the small pieces fill them.
 - The piece list lives in one config file (`src/core/pieceSet.js`), which also marks which pieces are special.
-- Each player has a **hand of 4 pieces**, dealt from their own shuffled **bag** holding each of the 10 pieces once per cycle (all 10 in random order, then reshuffled). This prevents long droughts of any one piece.
+- Each player has a **hand of 4 pieces**, dealt from their own shuffled **bag** holding each of the 7 tetrominoes once per cycle (all 7 in random order, then reshuffled). This prevents long droughts of any one piece.
+- **Special pieces are never dealt from the bag**, so starting hands and normal refills only ever contain tetrominoes. The only ways to get a special piece are a shuffle and a line-clear reward (below).
 - All hands are visible to all players.
 - After a player places a piece, the slot they played from is refilled from the bag, except after a line clear (below).
 - **Special piece picks** are made at random from the three special pieces, using the player's seeded random generator, **outside the bag**: they never remove a piece from the bag, so the bag cycle is unaffected. A player receives one:
@@ -281,7 +282,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 
 - **Roots**: *a block placed later on the player's own edge, cut off from the starting pieces, detonates*; a destroyed starting piece's cell is not a root when refilled.
 - **Resolution**: each of the 0 / 1 / 2+ outcomes; conversion to a timed-out player (dulled, no points); a dulled region breaking off; *fresh orphan merges with adjacent grey cluster before counting colours*; *same orphan without the grey neighbour detonates*; *merged cluster counts touching colours from both parts*; a grey cluster re-evaluated after a remote move removes one of its colours.
-- **Pieces**: all 10 shapes and their rotations; each dealt once per bag cycle; special picks leave the bag untouched; a 1×1 fills a one-cell hole no tetromino fits; small pieces must touch an own block; a shuffle deals 3 bag pieces plus 1 special; a line clear refills the played slot with a special piece, and a move without one refills from the bag.
+- **Pieces**: all 10 shapes and their rotations; the bag deals each tetromino once per cycle and never a special piece; starting hands contain no special pieces; special picks leave the bag untouched; a 1×1 fills a one-cell hole no tetromino fits; small pieces must touch an own block; a shuffle deals 3 bag pieces plus 1 special; a line clear refills the played slot with a special piece, and a move without one refills from the bag.
 - **Lines and scoring**: 2 hits at a crossing; 2 points for the mover's own block destroyed by a line; no points for HP-only hits; frozen scores for players who are not alive.
 - **Turns and clocks**: AFK pass versus personal-clock timeout and their precedence; bonus capping; cap decay; forced pass and +5 s.
 - **Shuffle**: offer persists across stuck turns and AFK passes; offer cleared on a legal move; one use per offer, with a fresh offer on the next forced pass.
@@ -294,7 +295,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 |---|---|
 | Board size | 11 × 11 |
 | Players | 4 (lobby starts when full) |
-| Pieces | 7 tetrominoes + 1×1, 1×2, small L (special), in `src/core/pieceSet.js` |
+| Pieces | 7 tetrominoes (bag) + 1×1, 1×2, small L (special: shuffle and line-clear reward only), in `src/core/pieceSet.js` |
 | Hand size | 4 |
 | Placed block HP | 1 |
 | Personal clock start and cap | 60 s |
