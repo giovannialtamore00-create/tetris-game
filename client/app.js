@@ -33,6 +33,7 @@
     banner: $('banner'),
     pauseBtn: $('pauseBtn'),
     newGameBtn: $('newGameBtn'),
+    soundBtn: $('soundBtn'),
     overlay: $('overlay'),
     overlayReason: $('overlayReason'),
     overlayNew: $('overlayNew'),
@@ -90,6 +91,66 @@
   const storage = makeStorage('localStorage');
   const tabStorage = makeStorage('sessionStorage');
 
+  // --- Sound effects ---------------------------------------------------------
+  // Synthesized with Web Audio, so there are no sound files. Browsers only
+  // allow audio after the user has interacted with the page, so the audio
+  // context is created (or resumed) on the first click or key press.
+
+  const MUTE_KEY = 'tetris.muted';
+  const sound = (() => {
+    let ctx = null;
+    let muted = storage.get(MUTE_KEY) === true;
+
+    function context() {
+      if (!ctx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        ctx = new AudioContextClass();
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    }
+
+    function tone(ac, freq, start, duration, type, volume) {
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      osc.connect(gain).connect(ac.destination);
+      osc.start(start);
+      osc.stop(start + duration + 0.05);
+    }
+
+    return {
+      get muted() {
+        return muted;
+      },
+      unlock() {
+        if (!muted) context();
+      },
+      toggle() {
+        muted = !muted;
+        storage.set(MUTE_KEY, muted);
+        if (!muted) context();
+      },
+      // A low thump plus a rising C-major arpeggio; clearing several lines at
+      // once extends the arpeggio an octave higher.
+      lineClear(lineCount) {
+        if (muted) return;
+        const ac = context();
+        if (!ac) return;
+        const t = ac.currentTime + 0.01;
+        const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+        if (lineCount >= 2) notes.push(1318.51, 1567.98, 2093.0); // E6 G6 C7
+        tone(ac, 130.81, t, 0.3, 'sine', 0.3);
+        notes.forEach((freq, k) => tone(ac, freq, t + k * 0.06, 0.4, 'triangle', 0.16));
+      },
+    };
+  })();
+
   // --- View state ------------------------------------------------------------
 
   const ui = {
@@ -140,6 +201,8 @@
       ui.rotation = 0;
     }
     logEvents(events, t);
+    const cleared = events.find((e) => e.type === 'linesCompleted');
+    if (cleared) sound.lineClear(cleared.lines.length);
     const flashCells = [];
     for (const e of events) {
       if (e.type === 'destroyed') flashCells.push(...e.cells.map((d) => d.cell));
@@ -711,6 +774,7 @@
     if (ctl.mode === 'local' && ctl.paused) status += ' · PAUSED';
     el.status.textContent = status;
     el.pauseBtn.textContent = ctl.mode === 'local' && ctl.paused ? 'Resume' : 'Pause';
+    el.soundBtn.textContent = sound.muted ? 'Sound: off' : 'Sound: on';
   }
 
   function renderHint() {
@@ -842,7 +906,17 @@
       render();
     } else if (['1', '2', '3', '4'].includes(e.key)) selectPiece(Number(e.key) - 1);
     else if ((e.key === 'p' || e.key === 'P') && ctl.mode === 'local') ctl.togglePause();
+    else if (e.key === 'm' || e.key === 'M') toggleSound();
   });
+
+  function toggleSound() {
+    sound.toggle();
+    if (ui.state && ctl) renderTimers(ctl.now());
+  }
+
+  // Browsers only start audio after a user gesture: unlock it on any input.
+  document.addEventListener('pointerdown', () => sound.unlock());
+  document.addEventListener('keydown', () => sound.unlock());
 
   // --- Wiring ---------------------------------------------------------------------
 
@@ -881,6 +955,7 @@
     ctl.leave();
   });
   el.pauseBtn.addEventListener('click', () => ctl && ctl.mode === 'local' && ctl.togglePause());
+  el.soundBtn.addEventListener('click', toggleSound);
   el.newGameBtn.addEventListener('click', () => ctl && ctl.mode === 'local' && ctl.start());
   el.overlayNew.addEventListener('click', () => {
     if (ctl.mode === 'local') ctl.start();

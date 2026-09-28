@@ -275,6 +275,7 @@ The room layer keeps **one** `setTimeout` set to `nextDeadline(state)` and reset
 - Server → client messages: `joined { code, seat, token }`, `lobby { code, you, seats }`, `state { code, you, seats, state, events, serverNow }`, `error { error }`, `replaced`, `left`. `seats` lists each seat's nickname and whether it is connected.
 - Players can pick up, rotate and preview a piece at any time; the client only sends the move on their live turn.
 - The server works only in absolute board coordinates. (Rotating each client's view so its own edge is at the bottom is planned; the current client shows North at the top.)
+- Every line clear plays a short synthesized chime (Web Audio, no sound files), longer when several lines clear at once. Everyone in the room hears it. A Sound on/off button (key **M**) mutes it, and the choice is remembered in the browser.
 - The same page also offers local hot-seat play, running the core in the browser. Opened straight from disk (`file://`), only hot-seat is available.
 
 ## 19. Code layout and tests
