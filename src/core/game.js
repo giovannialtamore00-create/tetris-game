@@ -59,9 +59,10 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
     hp,
     root,
     players,
-    phase: 'turn', // 'turn' | 'shuffleWindow' | 'over'
-    activeSeat: null,
+    phase: 'turn', // 'interlude' | 'turn' | 'shuffleWindow' | 'over'
+    activeSeat: null, // the player to move (during an interlude: the next one)
     turnStartedAt: null, // set while a turn is live
+    interludeEndsAt: null, // set during the pause before a turn
     pendingSeat: null, // seat that starts the next round after a shuffle window
     round: 1,
     turnsTakenThisRound: new Array(SEAT_COUNT).fill(false),
@@ -75,7 +76,7 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
 
   const events = [{ type: 'gameStarted', at: now, endsAt: s.endsAt }];
   const firstSeat = nextInt(createRng(deriveSeed(seed, 0)), SEAT_COUNT);
-  beginTurn(s, firstSeat, now, events);
+  queueTurn(s, firstSeat, now, events);
   return ok(s, events);
 }
 
@@ -93,7 +94,7 @@ function nextLivingSeat(s, from) {
 }
 
 // Pending deadlines in the order they must be applied: chronological, with
-// ties broken game clock > personal clock > AFK > shuffle window (§9).
+// ties broken game clock > personal clock > AFK > shuffle window > interlude (§9).
 function pendingDeadlines(s) {
   if (s.over) return [];
   const list = [{ at: s.endsAt, kind: 'gameEnd', priority: 0 }];
@@ -104,6 +105,9 @@ function pendingDeadlines(s) {
   }
   if (s.phase === 'shuffleWindow') {
     list.push({ at: s.shuffleWindowEndsAt, kind: 'shuffleWindow', priority: 3 });
+  }
+  if (s.phase === 'interlude') {
+    list.push({ at: s.interludeEndsAt, kind: 'interlude', priority: 4 });
   }
   return list.sort((a, b) => a.at - b.at || a.priority - b.priority);
 }
@@ -130,8 +134,23 @@ function addBonus(player, ms) {
   player.remainingMs = Math.max(player.remainingMs, Math.min(player.remainingMs + ms, player.capMs));
 }
 
+// §8: every turn is preceded by a short pause so players can see what just
+// happened. No personal clock runs during it; the game clock does.
+function queueTurn(s, seat, now, events) {
+  if (s.config.turnDelayMs <= 0) {
+    beginTurn(s, seat, now, events);
+    return;
+  }
+  s.phase = 'interlude';
+  s.activeSeat = seat;
+  s.turnStartedAt = null;
+  s.interludeEndsAt = now + s.config.turnDelayMs;
+  events.push({ type: 'interlude', nextSeat: seat, at: now, endsAt: s.interludeEndsAt });
+}
+
 function beginTurn(s, seat, now, events) {
   s.phase = 'turn';
+  s.interludeEndsAt = null;
   s.activeSeat = seat;
   s.turnStartedAt = null;
   if (!hasLegalMove(s.owner, seat, s.players[seat].hand)) {
@@ -185,7 +204,7 @@ function endTurn(s, now, events) {
     }
   }
 
-  beginTurn(s, nextLivingSeat(s, fromSeat), now, events);
+  queueTurn(s, nextLivingSeat(s, fromSeat), now, events);
 }
 
 function closeShuffleWindow(s, now, events) {
@@ -193,7 +212,7 @@ function closeShuffleWindow(s, now, events) {
   s.pendingSeat = null;
   s.shuffleWindowEndsAt = null;
   events.push({ type: 'shuffleWindowClosed', at: now });
-  beginTurn(s, seat, now, events);
+  queueTurn(s, seat, now, events);
 }
 
 function endGame(s, reason, now, events) {
@@ -201,6 +220,7 @@ function endGame(s, reason, now, events) {
   s.phase = 'over';
   s.activeSeat = null;
   s.turnStartedAt = null;
+  s.interludeEndsAt = null;
   s.pendingSeat = null;
   s.shuffleWindowEndsAt = null;
   s.result = { reason, ...rankPlayers(s.players, s.owner) };
@@ -312,7 +332,7 @@ function applyMove(state, seat, move, now) {
     } else {
       mover.hand[handIndex] = drawPiece(mover.bag);
     }
-    // +1 s for the move, plus 2 s for every line it completed (§8).
+    // +2 s for the move, plus 2 s for every line it completed (§8).
     const lineBonusMs = lines.length * cfg.lineClearBonusMs;
     if (lineBonusMs > 0) events.push({ type: 'lineClearBonus', seat, lines: lines.length, ms: lineBonusMs });
     addBonus(mover, cfg.moveBonusMs + lineBonusMs);
@@ -378,8 +398,10 @@ function tick(state, now) {
       s.turnsTakenThisRound[p.seat] = true;
       events.push({ type: 'passed', seat: p.seat, reason: 'afk', at });
       endTurn(s, at, events);
-    } else {
+    } else if (due.kind === 'shuffleWindow') {
       closeShuffleWindow(s, at, events);
+    } else {
+      beginTurn(s, s.activeSeat, at, events);
     }
   }
   return ok(s, events);

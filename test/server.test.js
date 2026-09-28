@@ -6,12 +6,15 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const WebSocket = require('ws');
 const { createServer } = require('../server/app');
+const { RoomManager } = require('../server/rooms');
 
 let app;
 let base;
 
 before(async () => {
-  app = createServer({ log: { error() {} } });
+  // No pause before turns, so the test can move straight away.
+  const rooms = new RoomManager({ gameConfig: { turnDelayMs: 0 } });
+  app = createServer({ rooms, log: { error() {} } });
   const { port } = await app.listen(0, '127.0.0.1');
   base = `127.0.0.1:${port}`;
 });

@@ -23,11 +23,12 @@ const DEFAULT_CONFIG = Object.freeze({
   handSize: 4,
   placedHp: 1,
   clockStartMs: 60_000,
-  moveBonusMs: 1_000,
+  moveBonusMs: 2_000,
   lineClearBonusMs: 2_000, // per line the move completes
   forcedPassBonusMs: 5_000,
   capDecayMs: 1_000,
   afkMs: 10_000,
+  turnDelayMs: 2_000, // pause before every turn; no personal clock runs (§8)
   shuffleWindowMs: 10_000,
   gameLengthMs: 600_000,
 });

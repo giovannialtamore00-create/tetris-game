@@ -29,12 +29,18 @@ describe('createGame', () => {
     }
   });
 
-  it('starts the 10-minute game clock and a live first turn', () => {
+  it('starts the 10-minute game clock and the first turn after the 2 s pause', () => {
     assert.equal(state.endsAt, 601_000);
-    assert.equal(state.phase, 'turn');
-    assert.equal(state.turnStartedAt, 1_000);
-    assert.deepEqual(ofType(events, 'turnStarted'), [
-      { type: 'turnStarted', seat: state.activeSeat, round: 1, at: 1_000 },
+    assert.equal(state.phase, 'interlude');
+    assert.equal(state.turnStartedAt, null);
+    assert.deepEqual(ofType(events, 'interlude'), [
+      { type: 'interlude', nextSeat: state.activeSeat, at: 1_000, endsAt: 3_000 },
+    ]);
+    const { state: live, events: started } = expectOk(game.tick(state, 3_000));
+    assert.equal(live.phase, 'turn');
+    assert.equal(live.turnStartedAt, 3_000);
+    assert.deepEqual(ofType(started, 'turnStarted'), [
+      { type: 'turnStarted', seat: state.activeSeat, round: 1, at: 3_000 },
     ]);
   });
 

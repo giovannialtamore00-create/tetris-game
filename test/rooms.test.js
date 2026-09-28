@@ -124,9 +124,17 @@ describe('rooms: creating and joining', () => {
       assert.ok(msg, `seat ${seat} got no state`);
       assert.equal(msg.you, seat);
       assert.deepEqual(msg.seats.map((s) => s.nickname), ['Ann', 'Bob', 'Cat', 'Dan']);
-      assert.equal(msg.state.phase, 'turn');
+      assert.equal(msg.state.phase, 'interlude');
       assert.ok(msg.events.some((e) => e.type === 'gameStarted'));
     });
+  });
+
+  it('broadcasts the start of the first turn when the 2 s pause ends', () => {
+    const { env, conns, room } = fullRoom();
+    env.advance(2_000);
+    for (const conn of conns) {
+      assert.ok(conn.last('state').events.some((e) => e.type === 'turnStarted' && e.seat === room.state.activeSeat));
+    }
   });
 
   it('never sends the bags, which would reveal upcoming pieces', () => {
@@ -157,7 +165,8 @@ describe('rooms: creating and joining', () => {
 
 describe('rooms: playing', () => {
   it('applies a legal move from the active player and broadcasts it to everyone', () => {
-    const { rooms, conns, room } = fullRoom();
+    const { env, rooms, conns, room } = fullRoom();
+    env.advance(2_000); // the pause before the first turn
     const seat = room.state.activeSeat;
     const move = firstLegalMove(room.state, seat);
     rooms.handleMessage(conns[seat], { type: 'move', move });
@@ -169,7 +178,8 @@ describe('rooms: playing', () => {
   });
 
   it('rejects a move from a player whose turn it is not, telling only them', () => {
-    const { rooms, conns, room } = fullRoom();
+    const { env, rooms, conns, room } = fullRoom();
+    env.advance(2_000);
     const other = (room.state.activeSeat + 1) % 4;
     const before = conns.map((c) => c.sent.length);
     rooms.handleMessage(conns[other], { type: 'move', move: { handIndex: 0, rotation: 0, x: 5, y: 5 } });
@@ -182,7 +192,7 @@ describe('rooms: playing', () => {
   it('runs deadlines on the server: an idle player is AFK-passed after 10 s', () => {
     const { env, conns, room } = fullRoom();
     const seat = room.state.activeSeat;
-    env.advance(10_000);
+    env.advance(2_000 + 10_000); // the pause, then the AFK timer
     const msg = conns[0].last('state');
     assert.ok(msg.events.some((e) => e.type === 'passed' && e.reason === 'afk' && e.seat === seat));
   });

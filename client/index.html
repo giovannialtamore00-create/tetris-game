@@ -60,13 +60,15 @@
     <div class="banner" id="banner" hidden></div>
 
     <main class="layout">
-      <section class="board-area">
-        <div class="board-frame" id="boardFrame">
-          <div class="edge-label north">North</div>
-          <div class="edge-label west">West</div>
+      <!-- The board is turned so the viewer's own edge is at the bottom; each
+           other player's panel sits beside their edge. -->
+      <section class="table-area">
+        <div class="table">
+          <section class="seat-panel top" id="panelTop"></section>
+          <section class="seat-panel left" id="panelLeft"></section>
           <div class="board" id="board" aria-label="Game board"></div>
-          <div class="edge-label east">East</div>
-          <div class="edge-label south">South</div>
+          <section class="seat-panel right" id="panelRight"></section>
+          <section class="seat-panel bottom mine" id="panelBottom"></section>
         </div>
         <p class="hint" id="hint"></p>
         <p class="help">
@@ -76,12 +78,9 @@
         </p>
       </section>
 
-      <aside class="sidebar">
-        <div class="players" id="players"></div>
-        <div class="log-panel">
-          <h2>Events</h2>
-          <ol class="log" id="log"></ol>
-        </div>
+      <aside class="log-panel">
+        <h2>Events</h2>
+        <ol class="log" id="log"></ol>
       </aside>
     </main>
   </div>

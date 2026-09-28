@@ -126,9 +126,11 @@ All points go to the player who made the move, except conversion points, which g
 
 ## 8. Turns and passes
 
+**Pause between turns.** Every turn, including the first turn of the game and the first turn after a shuffle window, starts **2 s** after the previous turn ended, so players can see what just happened. During the pause no personal clock runs and the AFK timer has not started; the 10-minute game clock keeps running. Nobody can move during the pause, but shuffling is still allowed (§8, shuffle offer).
+
 On each turn, the active player does one of the following:
 
-- **Makes a move.** Their clock is charged the time taken, then they receive +1 s, plus **+2 s for every line the move completes** (a row and a column completed together earn +4 s). Like every bonus, this never pushes the clock above its cap.
+- **Makes a move.** Their clock is charged the time taken, then they receive +2 s, plus **+2 s for every line the move completes** (a row and a column completed together earn +4 s). Like every bonus, this never pushes the clock above its cap.
 - **Is force-passed.** If, at the start of their turn, no piece in their hand has any legal placement in any rotation, they are passed **immediately**. No time is charged, they receive **+5 s**, and they are granted a **shuffle offer**.
 - **Is AFK-passed.** If they make no move within **10 s** of their turn starting, they are passed. The 10 s is charged to their clock and they receive **no bonus**. Their hand does not change.
 
@@ -250,6 +252,8 @@ Step 7 needs only one pass. Clusters never touch each other (touching cells woul
 
 ## 16. Turn loop
 
+When a turn ends, the next one is queued: the game enters the `interlude` phase for `turnDelayMs` (2 s), with `activeSeat` already set to the next player and `interludeEndsAt` set. When the pause ends, `tick` starts the turn. With `turnDelayMs` set to 0 the turn starts at once (most tests use this).
+
 `startTurn` runs whenever a turn begins:
 
 1. Enumerate every legal placement of the player's hand (at most 4 pieces × 4 rotations × 121 positions). If there are none, force-pass them (§8) and advance.
@@ -261,8 +265,8 @@ Step 7 needs only one pass. Clusters never touch each other (touching cells woul
 
 The core exposes two functions:
 
-- `nextDeadline(state)` returns the earliest pending deadline: game end, the active player's personal clock, their AFK deadline, or the end of a shuffle window.
-- `tick(state, now)` applies everything that has expired, in precedence order: game end, then personal clock, then AFK, then shuffle window.
+- `nextDeadline(state)` returns the earliest pending deadline: game end, the active player's personal clock, their AFK deadline, the end of a shuffle window, or the end of the pause before a turn.
+- `tick(state, now)` applies everything that has expired, in precedence order: game end, then personal clock, then AFK, then shuffle window, then the pause.
 
 The room layer keeps **one** `setTimeout` set to `nextDeadline(state)` and resets it after every state change. It also calls `tick(state, now)` before handling any incoming message, so a timer that fires late can never let a stale move through. Node processes one event at a time, so there are no races between moves and timers.
 
@@ -274,7 +278,8 @@ The room layer keeps **one** `setTimeout` set to `nextDeadline(state)` and reset
 - Client → server messages: `create { nickname }`, `join { code, nickname }`, `resume { code, token }`, `leave`, `move { handIndex, rotation, x, y }`, `shuffle`.
 - Server → client messages: `joined { code, seat, token }`, `lobby { code, you, seats }`, `state { code, you, seats, state, events, serverNow }`, `error { error }`, `replaced`, `left`. `seats` lists each seat's nickname and whether it is connected.
 - Players can pick up, rotate and preview a piece at any time; the client only sends the move on their live turn.
-- The server works only in absolute board coordinates. (Rotating each client's view so its own edge is at the bottom is planned; the current client shows North at the top.)
+- The server works only in absolute board coordinates. Each client turns its view so the viewer's own edge is at the bottom: board cell (r, c) is drawn a quarter turn anticlockwise per seat after South, and a piece rotation the player picks on screen is converted to board terms before it is sent.
+- **Layout.** The board sits in the centre of the screen with a panel beside each edge for the player on that edge: name, score, clock, AFK bar and hand. The viewer's own panel is below the board and twice the size of the others, with the shuffle button under their hand. Online, the viewer is always you. In hot-seat it is whoever's turn is live, and the view stays with the player who just moved until the next turn starts.
 - Every line clear plays a short synthesized chime (Web Audio, no sound files), longer when several lines clear at once. Everyone in the room hears it. A Sound on/off button (key **M**) mutes it, and the choice is remembered in the browser.
 - The same page also offers local hot-seat play, running the core in the browser. Opened straight from disk (`file://`), only hot-seat is available.
 
@@ -320,7 +325,8 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 | Hand size | 4 |
 | Placed block HP | 1 |
 | Personal clock start and cap | 60 s |
-| Move bonus | +1 s |
+| Move bonus | +2 s |
+| Pause before each turn | 2 s (`turnDelayMs`) |
 | Line-clear bonus | +2 s per completed line |
 | Forced-pass bonus | +5 s |
 | Cap decay per round | 1 s |

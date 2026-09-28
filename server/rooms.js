@@ -161,7 +161,7 @@ class Room {
 
   start() {
     const seed = Math.floor(this.manager.random() * 2 ** 31);
-    const result = game.createGame({ seed, now: this.manager.now() });
+    const result = game.createGame({ seed, now: this.manager.now(), config: this.manager.gameConfig });
     this.state = result.state;
     this.broadcastState(result.events);
     this.scheduleDeadline();
@@ -250,7 +250,9 @@ class RoomManager {
     random = Math.random,
     lobbyGraceMs = 20_000,
     emptyRoomTtlMs = 10 * 60_000,
+    gameConfig = {}, // overrides for the core's DEFAULT_CONFIG in every new game
   } = {}) {
+    this.gameConfig = gameConfig;
     this.now = now;
     this.setTimer = setTimer;
     this.clearTimer = (handle) => {

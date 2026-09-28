@@ -13,9 +13,9 @@ const southTurn = (players = {}, extra = {}) =>
   buildState({ hands: { [SOUTH]: O_HAND }, players: { [SOUTH]: players }, ...extra });
 
 describe('personal clock', () => {
-  it('charges the time taken, then adds 1 s', () => {
+  it('charges the time taken, then adds 2 s', () => {
     const { state } = move(southTurn({ remainingMs: 40_000 }), SOUTH, O_ON_PYRAMID, 3_000);
-    assert.equal(state.players[SOUTH].remainingMs, 38_000);
+    assert.equal(state.players[SOUTH].remainingMs, 39_000);
   });
 
   it('never lets a bonus push the clock above its cap', () => {
@@ -28,7 +28,7 @@ describe('personal clock', () => {
     assert.equal(state.players[SOUTH].remainingMs, 60_000);
   });
 
-  it('adds 2 s for every line the move completes, on top of the 1 s move bonus', () => {
+  it('adds 2 s for every line the move completes, on top of the 2 s move bonus', () => {
     // Row 5 and column 5 are full except (5,5): a 1x1 there completes both.
     const rows = [
       '#....n....#',
@@ -53,8 +53,8 @@ describe('personal clock', () => {
       players: { [SOUTH]: { remainingMs: 40_000 } },
     });
     const { state: after, events } = move(state, SOUTH, { handIndex: 0, rotation: 0, x: 5, y: 5 }, 1_000);
-    // 40 s - 1 s taken + 1 s move bonus + 2 x 2 s for the row and the column.
-    assert.equal(after.players[SOUTH].remainingMs, 44_000);
+    // 40 s - 1 s taken + 2 s move bonus + 2 x 2 s for the row and the column.
+    assert.equal(after.players[SOUTH].remainingMs, 45_000);
     assert.deepEqual(ofType(events, 'lineClearBonus'), [{ type: 'lineClearBonus', seat: SOUTH, lines: 2, ms: 4_000 }]);
   });
 

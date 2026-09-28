@@ -78,8 +78,11 @@ function buildState({
   statuses = {},
   players = {},
   live = true,
+  // Most tests are about other rules, so turns start without the 2 s pause
+  // unless a test asks for it; the pause itself is tested in turns.test.js.
+  config = {},
 } = {}) {
-  const { state } = game.createGame({ seed, now });
+  const { state } = game.createGame({ seed, now, config: { turnDelayMs: 0, ...config } });
   if (rows) Object.assign(state, parseBoard(rows, hpRows));
   for (const [seat, hand] of Object.entries(hands)) state.players[seat].hand = [...hand];
   for (const [seat, status] of Object.entries(statuses)) state.players[seat].status = status;

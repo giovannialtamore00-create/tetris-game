@@ -5,6 +5,7 @@
   "main": "src/core/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "tunnel": "cloudflared tunnel --no-autoupdate --url http://localhost:8080",
     "test": "node --test",
     "client": "node scripts/build-client.js"
   },

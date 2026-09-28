@@ -25,7 +25,7 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     board: $('board'),
-    players: $('players'),
+    panels: { bottom: $('panelBottom'), left: $('panelLeft'), top: $('panelTop'), right: $('panelRight') },
     log: $('log'),
     gameClock: $('gameClock'),
     status: $('status'),
@@ -156,8 +156,9 @@
   const ui = {
     state: null,
     selected: null, // hand index of the picked-up piece
-    rotation: 0,
+    rotation: 0, // as the viewer sees it on screen (see boardRotation)
     hover: null, // board cell index under the pointer
+    viewSeat: null, // whose point of view the board is drawn from (their edge at the bottom)
     message: '',
     messageIsError: false,
     overlayDismissed: false,
@@ -173,6 +174,7 @@
     ui.state = null;
     ui.selected = null;
     ui.rotation = 0;
+    ui.viewSeat = null;
     ui.overlayDismissed = false;
     el.log.innerHTML = '';
     setMessage('');
@@ -200,6 +202,7 @@
       ui.selected = null;
       ui.rotation = 0;
     }
+    updateViewSeat();
     logEvents(events, t);
     const cleared = events.find((e) => e.type === 'linesCompleted');
     if (cleared) sound.lineClear(cleared.lines.length);
@@ -535,7 +538,8 @@
     const seat = ctl ? ctl.controlledSeat() : null;
     if (seat === null || ui.selected === null || cell === null) return null;
     const piece = ui.state.players[seat].hand[ui.selected];
-    const offsets = P.ROTATIONS[piece][ui.rotation];
+    const rotation = boardRotation();
+    const offsets = P.ROTATIONS[piece][rotation];
     const h = Math.max(...offsets.map(([r]) => r)) + 1;
     const w = Math.max(...offsets.map(([, c]) => c)) + 1;
     const y = Math.floor(cell / C.SIZE) - Math.floor((h - 1) / 2);
@@ -544,9 +548,9 @@
       .map(([r, c]) => [y + r, x + c])
       .filter(([r, c]) => C.inBounds(r, c))
       .map(([r, c]) => C.idx(r, c));
-    const exact = B.pieceCells(piece, ui.rotation, x, y);
+    const exact = B.pieceCells(piece, rotation, x, y);
     const legal = B.isLegalPlacement(ui.state.owner, seat, exact);
-    return { x, y, cells, legal };
+    return { x, y, rotation, cells, legal };
   }
 
   function place(cell) {
@@ -557,23 +561,66 @@
       render();
       return;
     }
-    ctl.move({ handIndex: ui.selected, rotation: ui.rotation, x: placement.x, y: placement.y });
+    ctl.move({ handIndex: ui.selected, rotation: placement.rotation, x: placement.x, y: placement.y });
   }
+
+  // --- Point of view -------------------------------------------------------------
+  // The board is drawn turned so the viewer's own edge is at the bottom. Turning
+  // from one seat to the next (South -> West -> North -> East) is a quarter turn:
+  // board cell (r, c) is drawn at screen (10 - c, r). The server and the core
+  // only ever use board coordinates.
+
+  // Online the viewer is always you. In hot-seat it is whoever's turn is live;
+  // during the pause between turns the view stays with the player who just moved.
+  function updateViewSeat() {
+    const s = ui.state;
+    if (ctl.mode === 'online' && ctl.mySeat !== null) ui.viewSeat = ctl.mySeat;
+    else if (s.phase === 'turn' && s.turnStartedAt !== null) ui.viewSeat = s.activeSeat;
+    else if (ui.viewSeat === null) ui.viewSeat = s.activeSeat !== null ? s.activeSeat : 0;
+  }
+
+  // boardOfScreen[v][p] = board cell drawn at screen position p for viewer seat v.
+  const boardOfScreen = [0, 1, 2, 3].map((v) => {
+    const map = [];
+    for (let p = 0; p < C.CELL_COUNT; p++) {
+      let r = Math.floor(p / C.SIZE);
+      let c = p % C.SIZE;
+      for (let k = 0; k < v; k++) [r, c] = [c, C.SIZE - 1 - r];
+      map.push(C.idx(r, c));
+    }
+    return map;
+  });
+  const screenOfBoard = boardOfScreen.map((map) => {
+    const inverse = [];
+    map.forEach((b, p) => {
+      inverse[b] = p;
+    });
+    return inverse;
+  });
+  const view = () => (ui.viewSeat === null ? 0 : ui.viewSeat);
+
+  // Which seat sits along each screen edge for the current viewer.
+  const seatAt = (side) => (view() + { bottom: 0, left: 1, top: 2, right: 3 }[side]) % 4;
+
+  // The board is drawn turned a quarter anticlockwise per seat, so a piece the
+  // viewer sees at rotation k is rotation k + viewer seat in board terms.
+  const boardRotation = () => (ui.rotation + view()) % 4;
 
   // --- Board rendering ------------------------------------------------------------
 
-  const cellEls = [];
+  const cellEls = []; // indexed by screen position
   function buildBoard() {
-    for (let i = 0; i < C.CELL_COUNT; i++) {
+    for (let p = 0; p < C.CELL_COUNT; p++) {
       const div = document.createElement('div');
       div.className = 'cell';
-      div.dataset.i = i;
+      div.dataset.p = p;
       el.board.appendChild(div);
       cellEls.push(div);
     }
+    const boardCellOf = (target) =>
+      target.dataset && target.dataset.p !== undefined ? boardOfScreen[view()][Number(target.dataset.p)] : null;
     el.board.addEventListener('mousemove', (e) => {
-      const i = e.target.dataset && e.target.dataset.i;
-      const cell = i === undefined ? null : Number(i);
+      const cell = boardCellOf(e.target);
       if (cell !== ui.hover) {
         ui.hover = cell;
         if (ui.state) renderBoard();
@@ -584,7 +631,8 @@
       if (ui.state) renderBoard();
     });
     el.board.addEventListener('click', (e) => {
-      if (ui.state && e.target.dataset && e.target.dataset.i !== undefined) place(Number(e.target.dataset.i));
+      const cell = boardCellOf(e.target);
+      if (ui.state && cell !== null) place(cell);
     });
     el.board.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -618,9 +666,14 @@
   function renderBoard() {
     const placement = placementAt(ui.hover);
     const preview = new Set(placement ? placement.cells : []);
-    for (let i = 0; i < C.CELL_COUNT; i++) {
+    const map = boardOfScreen[view()];
+    for (const [side, prop] of [['top', '--edge-top'], ['bottom', '--edge-bottom'], ['left', '--edge-left'], ['right', '--edge-right']]) {
+      el.board.style.setProperty(prop, `hsl(${HUES[seatAt(side)]}, 60%, 50%)`);
+    }
+    for (let p = 0; p < C.CELL_COUNT; p++) {
+      const i = map[p];
       const style = cellStyle(i);
-      const div = cellEls[i];
+      const div = cellEls[p];
       let className = style.className;
       if (preview.has(i)) className += placement.legal ? ' preview legal' : ' preview illegal';
       if (div.classList.contains('flash')) className += ' flash';
@@ -633,7 +686,7 @@
 
   function flash(cells) {
     for (const i of cells) {
-      const div = cellEls[i];
+      const div = cellEls[screenOfBoard[view()][i]];
       div.classList.remove('flash');
       void div.offsetWidth; // restart the animation
       div.classList.add('flash');
@@ -650,7 +703,7 @@
     const filled = new Set(offsets.map(([r, c]) => `${r},${c}`));
     const grid = document.createElement('div');
     grid.className = 'mini';
-    grid.style.gridTemplateColumns = `repeat(${w}, 9px)`;
+    grid.style.gridTemplateColumns = `repeat(${w}, var(--mini, 9px))`;
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         const d = document.createElement('div');
@@ -679,17 +732,20 @@
   // readouts are updated in place by renderTimers().
   const timerEls = [];
 
-  function renderPlayers() {
+  // One panel beside each edge of the board: the viewer's own (large, with the
+  // playable hand and the shuffle button) below it, the others at their edges.
+  function renderPanels() {
     const s = ui.state;
     const live = liveSeat();
     const controlled = ctl.controlledSeat();
-    el.players.innerHTML = '';
-    for (const p of s.players) {
+    for (const side of ['bottom', 'left', 'top', 'right']) {
+      const p = s.players[seatAt(side)];
       const hue = HUES[p.seat];
       const isActive = live === p.seat;
       const isMine = controlled === p.seat;
-      const card = document.createElement('div');
-      card.className = `player${isActive ? ' active' : ''}${p.status !== C.ALIVE ? ' out' : ''}`;
+      const card = el.panels[side];
+      card.innerHTML = '';
+      card.className = `seat-panel ${side}${side === 'bottom' ? ' mine' : ''}${isActive ? ' active' : ''}${p.status !== C.ALIVE ? ' out' : ''}`;
       card.style.setProperty('--hue', hue);
 
       const head = document.createElement('div');
@@ -733,11 +789,10 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'shuffle-btn';
-        btn.textContent = 'Shuffle hand (offer available)';
+        btn.textContent = side === 'bottom' ? 'Shuffle hand (offer available)' : 'Shuffle';
         btn.addEventListener('click', () => ctl.shuffle(p.seat));
         card.appendChild(btn);
       }
-      el.players.appendChild(card);
     }
   }
 
@@ -766,6 +821,9 @@
     if (s.over) status = 'Game over';
     else if (s.phase === 'shuffleWindow') {
       status = `Everyone is stuck — shuffle window ${fmtSeconds(s.shuffleWindowEndsAt - t)} s`;
+    } else if (s.phase === 'interlude') {
+      const next = ctl.mode === 'online' && s.activeSeat === ctl.mySeat ? 'Your turn' : `${ctl.seatLabel(s.activeSeat)}'s turn`;
+      status = `Round ${s.round} · ${next} in ${fmtSeconds(s.interludeEndsAt - t)} s`;
     } else if (ctl.mode === 'online' && s.activeSeat === ctl.mySeat) {
       status = `Round ${s.round} · Your turn`;
     } else {
@@ -783,7 +841,9 @@
       const s = ui.state;
       const seat = ctl.controlledSeat();
       if (s.over) text = '';
-      else if (seat === null) {
+      else if (ctl.mode === 'local' && s.phase === 'interlude') {
+        text = `Next up: ${SEATS[s.activeSeat].name}. The board turns to face them when their turn starts.`;
+      } else if (seat === null) {
         text = ctl.mode === 'online' ? 'You are out of the game — watching.' : 'Waiting for the shuffle window to close.';
       } else if (!ctl.canPlace()) {
         text = 'Not your turn yet: you can pick, rotate and preview a piece while you wait.';
@@ -844,6 +904,7 @@
       case 'converted': return `${e.cells.length} block(s) converted to ${who(e.to)} (+${e.points}).`;
       case 'greyed': return `${e.cells.length} block(s) turned grey.`;
       case 'scored': return null;
+      case 'interlude': return null;
       case 'eliminated': return `${who(e.seat)} has no blocks left and is eliminated.`;
       case 'passed':
         return e.reason === 'afk'
@@ -884,7 +945,7 @@
     el.pauseBtn.hidden = ctl.mode !== 'local';
     el.newGameBtn.hidden = ctl.mode !== 'local';
     renderBoard();
-    renderPlayers();
+    renderPanels();
     renderHint();
     renderOverlay();
     renderTimers(ctl.now());
