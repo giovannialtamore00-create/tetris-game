@@ -19,7 +19,12 @@ const ALIVE = 'alive';
 const ELIMINATED = 'eliminated';
 const TIMED_OUT = 'timedOut';
 
+const TURNS = 'turns';
+const REALTIME = 'realtime';
+
 const DEFAULT_CONFIG = Object.freeze({
+  mode: TURNS, // 'turns' (turn-based) or 'realtime' (§21)
+  cooldownMs: 3_000, // real-time mode: wait after a placement without a line clear
   handSize: 4,
   placedHp: 1,
   clockStartMs: 60_000,
@@ -53,6 +58,8 @@ module.exports = {
   ALIVE,
   ELIMINATED,
   TIMED_OUT,
+  TURNS,
+  REALTIME,
   DEFAULT_CONFIG,
   idx,
   rowOf,

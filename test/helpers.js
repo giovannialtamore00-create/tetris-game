@@ -87,6 +87,11 @@ function buildState({
   for (const [seat, hand] of Object.entries(hands)) state.players[seat].hand = [...hand];
   for (const [seat, status] of Object.entries(statuses)) state.players[seat].status = status;
   for (const [seat, fields] of Object.entries(players)) Object.assign(state.players[seat], fields);
+  if (state.config.mode === 'realtime') {
+    // Real-time games have no turns: nothing to set up beyond the board and players.
+    assertValid(state);
+    return state;
+  }
   state.phase = 'turn';
   state.activeSeat = active;
   state.turnStartedAt = live ? now : null;

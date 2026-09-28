@@ -8,7 +8,7 @@
 // A "controller" object hides the difference from the rendering code.
 
 (function () {
-  const { game, board: B, pieces: P, constants: C } = window.TetrisCore;
+  const { game, board: B, pieces: P, constants: C, bot } = window.TetrisCore;
 
   const SEATS = [
     { name: 'South', hueVar: '--south' },
@@ -61,6 +61,9 @@
     sessionExpired: 'That room no longer exists.',
     alreadyInRoom: 'You are already in a room.',
     serverError: 'The server hit an error. Try again.',
+    paused: 'The game is paused.',
+    notPaused: 'The game is not paused.',
+    notAllowedToResume: 'Only the player who paused, or the host, can resume.',
   };
   const errorText = (code) => ERRORS[code] || code;
 
@@ -162,8 +165,27 @@
     message: '',
     messageIsError: false,
     overlayDismissed: false,
+    // Move history: the board at the start and after every placement. While
+    // viewIndex is set, the board shows that entry instead of the live game.
+    history: [],
+    viewIndex: null,
   };
   let ctl = null; // the active controller
+
+  // Same entries as the server's (server/rooms.js historyEntry).
+  function historyEntry(state, events) {
+    const placed = events.find((e) => e.type === 'placed');
+    const started = events.find((e) => e.type === 'gameStarted');
+    if (!placed && !started) return null;
+    return {
+      owner: [...state.owner],
+      hp: [...state.hp],
+      seat: placed ? placed.seat : null,
+      piece: placed ? placed.piece : null,
+      cells: placed ? placed.cells : [],
+      at: placed ? placed.at : started.at,
+    };
+  }
 
   function showScreen(name) {
     for (const screen of ['menu', 'lobby', 'game']) $(`${screen}Screen`).hidden = screen !== name;
@@ -176,6 +198,8 @@
     ui.rotation = 0;
     ui.viewSeat = null;
     ui.overlayDismissed = false;
+    ui.history = [];
+    ui.viewIndex = null;
     el.log.innerHTML = '';
     setMessage('');
     setBanner('');
@@ -203,6 +227,8 @@
       ui.rotation = 0;
     }
     updateViewSeat();
+    const entry = historyEntry(state, events);
+    if (entry) ui.history.push(entry);
     logEvents(events, t);
     const cleared = events.find((e) => e.type === 'linesCompleted');
     if (cleared) sound.lineClear(cleared.lines.length);
@@ -215,9 +241,16 @@
     render();
   }
 
-  // --- Local hot-seat controller ----------------------------------------------
+  // --- Local controller: hot-seat, or you against easy bots --------------------
 
-  function createLocalController() {
+  const HUMAN_SEAT = 0; // against bots you always play South
+
+  function createLocalController({ botSeats = [], mode = C.TURNS } = {}) {
+    const vsBots = botSeats.length > 0;
+    const isBotSeat = (seat) => botSeats.includes(seat);
+    let botPlan = null; // turn-based: { turnStartedAt, at }, when the bot to move will play
+    let realtimePlans = []; // real-time: realtimePlans[seat] = { readyAt, at }
+
     // Virtual time: pausing freezes it. A local testing aid, not a game rule.
     const time = { virtual: 0, lastReal: performance.now(), paused: false };
     const now = () => {
@@ -233,17 +266,63 @@
       if (result.events.length > 0) applyUpdate(result.state, result.events, t);
     }
 
-    function act(fn, successMessage = '') {
+    // Bot actions are silent: if one turns out stale, it simply doesn't happen.
+    function act(fn, successMessage = '', { quiet = false } = {}) {
       const t = now();
       tick(t);
       const result = fn(ui.state, t);
       if (!result.ok) {
+        if (quiet) return;
         setMessage(errorText(result.error), true);
         render();
         return;
       }
-      setMessage(successMessage);
+      if (!quiet) setMessage(successMessage);
       applyUpdate(result.state, result.events, t);
+    }
+
+    // Easy bots: use a shuffle offer at once; on their live turn, move after
+    // thinking for 1.5-2.5 s of game time (so pausing pauses them too).
+    function runBots(t) {
+      const s = ui.state;
+      if (!s || s.over) return;
+      if (mode === C.REALTIME) {
+        runRealtimeBots(t);
+        return;
+      }
+      const shuffler = botSeats.find((seat) => bot.wantsShuffle(s, seat));
+      if (shuffler !== undefined) {
+        act((st, tt) => game.shuffle(st, shuffler, tt), '', { quiet: true });
+        return;
+      }
+      if (s.phase !== 'turn' || s.turnStartedAt === null || !isBotSeat(s.activeSeat)) return;
+      if (!botPlan || botPlan.turnStartedAt !== s.turnStartedAt) {
+        botPlan = { turnStartedAt: s.turnStartedAt, at: s.turnStartedAt + bot.botThinkMs() };
+      }
+      if (t < botPlan.at) return;
+      const seat = s.activeSeat;
+      const choice = bot.chooseEasyMove(s, seat);
+      if (choice) act((st, tt) => game.applyMove(st, seat, choice, tt), '', { quiet: true });
+    }
+
+    // Real-time (§21): each bot acts once its cooldown is over plus a
+    // 1.5-2.5 s think: a random legal piece, or a shuffle if it has none.
+    function runRealtimeBots(t) {
+      for (const seat of botSeats) {
+        const p = ui.state.players[seat];
+        if (p.status !== C.ALIVE) continue;
+        let plan = realtimePlans[seat];
+        if (!plan || plan.readyAt !== p.cooldownUntil) {
+          plan = { readyAt: p.cooldownUntil, at: Math.max(t, p.cooldownUntil) + bot.botThinkMs() };
+          realtimePlans[seat] = plan;
+        }
+        if (t < plan.at) continue;
+        realtimePlans[seat] = null;
+        const choice = bot.chooseEasyMove(ui.state, seat);
+        if (choice) act((st, tt) => game.applyMove(st, seat, choice, tt), '', { quiet: true });
+        else if (bot.wantsShuffle(ui.state, seat)) act((st, tt) => game.shuffle(st, seat, tt), '', { quiet: true });
+        return; // one bot action per frame
+      }
     }
 
     const c = {
@@ -257,19 +336,30 @@
         time.paused = !time.paused;
         render();
       },
-      // In hot-seat the viewer is whoever's live turn it is.
+      // Against bots you always play South. In hot-seat the player in control
+      // is whoever's live turn it is.
       controlledSeat() {
         const s = ui.state;
-        return s && s.phase === 'turn' && s.turnStartedAt !== null ? s.activeSeat : null;
+        if (!s) return null;
+        if (vsBots) return !s.over && s.players[HUMAN_SEAT].status === C.ALIVE ? HUMAN_SEAT : null;
+        return s.phase === 'turn' && s.turnStartedAt !== null ? s.activeSeat : null;
       },
       canPlace() {
-        return c.controlledSeat() !== null;
+        const s = ui.state;
+        if (!vsBots) return c.controlledSeat() !== null;
+        if (mode === C.REALTIME) return c.controlledSeat() !== null && now() >= s.players[HUMAN_SEAT].cooldownUntil;
+        return c.controlledSeat() !== null && s.phase === 'turn' && s.turnStartedAt !== null && s.activeSeat === HUMAN_SEAT;
       },
-      canShuffle() {
-        return true; // every player is at this screen
+      canShuffle(seat) {
+        return vsBots ? seat === HUMAN_SEAT : true; // in hot-seat every player is at this screen
       },
+      fixedViewSeat() {
+        return vsBots ? HUMAN_SEAT : null;
+      },
+      isBotSeat,
       seatLabel(seat) {
-        return SEATS[seat].name;
+        if (!vsBots) return SEATS[seat].name;
+        return seat === HUMAN_SEAT ? 'You' : `Easy bot ${seat}`;
       },
       seatConnected() {
         return true;
@@ -279,13 +369,17 @@
         time.lastReal = performance.now();
         time.paused = false;
         const seed = Math.floor(Math.random() * 2 ** 31);
-        const result = game.createGame({ seed, now: 0 });
+        const result = game.createGame({ seed, now: 0, config: { mode } });
+        botPlan = null;
+        realtimePlans = [];
         resetGameView();
         showScreen('game');
         applyUpdate(result.state, [{ type: 'note', text: `New game (seed ${seed})`, at: 0 }, ...result.events], 0);
       },
       frame() {
-        tick(now());
+        const t = now();
+        tick(t);
+        if (vsBots) runBots(t);
       },
       move(move) {
         const seat = c.controlledSeat();
@@ -313,6 +407,9 @@
     let offset = 0; // server clock minus local clock
     let mySeat = null;
     let seats = [null, null, null, null];
+    let host = null; // lobby host seat
+    let lobbyMode = C.TURNS;
+    let lobbyError = '';
     let session = null; // { code, token }
     let leaving = false;
     let reconnects = 0;
@@ -364,6 +461,9 @@
         case 'lobby':
           seats = msg.seats;
           mySeat = msg.you;
+          host = msg.host;
+          lobbyMode = msg.mode;
+          lobbyError = '';
           showScreen('lobby');
           renderLobby(msg.code);
           return;
@@ -371,6 +471,7 @@
           offset = msg.serverNow - Date.now();
           seats = msg.seats;
           mySeat = msg.you;
+          host = msg.host;
           if (!inGame) {
             inGame = true;
             resetGameView();
@@ -378,11 +479,21 @@
           }
           applyUpdate(msg.state, msg.events, c.now());
           return;
+        case 'history':
+          // Sent after reconnecting: the full move history so far.
+          ui.history = msg.entries;
+          if (ui.viewIndex !== null && ui.viewIndex >= ui.history.length) ui.viewIndex = null;
+          render();
+          return;
         case 'error':
-          if (msg.error === 'sessionExpired' || !inGame) {
+          if (msg.error === 'sessionExpired' || !session) {
+            // Could not get into a room at all: back to the menu.
             if (msg.error === 'sessionExpired') tabStorage.set(SESSION_KEY, null);
             c.close();
             showMenu(errorText(msg.error));
+          } else if (!inGame) {
+            lobbyError = errorText(msg.error);
+            el.lobbyStatus.textContent = lobbyError;
           } else {
             setMessage(errorText(msg.error), true);
             render();
@@ -404,13 +515,54 @@
         if (!s || s.over || mySeat === null) return null;
         return s.players[mySeat].status === C.ALIVE ? mySeat : null;
       },
-      // You may pick up and preview pieces at any time; placing needs your live turn.
+      // You may pick up and preview pieces at any time; placing needs your live
+      // turn (turn-based) or a finished cooldown (real-time).
       canPlace() {
         const s = ui.state;
-        return c.controlledSeat() !== null && s.phase === 'turn' && s.turnStartedAt !== null && s.activeSeat === mySeat;
+        if (c.controlledSeat() === null || s.pausedAt !== null) return false;
+        if (s.config.mode === C.REALTIME) return c.now() >= s.players[mySeat].cooldownUntil;
+        return s.phase === 'turn' && s.turnStartedAt !== null && s.activeSeat === mySeat;
       },
       canShuffle(seat) {
         return seat === mySeat;
+      },
+      fixedViewSeat() {
+        return mySeat;
+      },
+      isBotSeat(seat) {
+        return Boolean(seats[seat] && seats[seat].bot);
+      },
+      get isHost() {
+        return mySeat !== null && mySeat === host;
+      },
+      get hostSeat() {
+        return host;
+      },
+      get lobbyError() {
+        return lobbyError;
+      },
+      addBot() {
+        send({ type: 'addBot' });
+      },
+      removeBot(seat) {
+        send({ type: 'removeBot', seat });
+      },
+      setMode(newMode) {
+        send({ type: 'setMode', mode: newMode });
+      },
+      // §22: anyone can pause; the player who paused, or the host, can resume.
+      get paused() {
+        return Boolean(ui.state && ui.state.pausedAt !== null);
+      },
+      canUnpause() {
+        return c.paused && (ui.state.pausedBy === mySeat || mySeat === host);
+      },
+      togglePause() {
+        if (!c.paused) send({ type: 'pause' });
+        else if (c.canUnpause()) send({ type: 'unpause' });
+      },
+      get lobbyMode() {
+        return lobbyMode;
       },
       seatLabel(seat) {
         return seats[seat] ? seats[seat].nickname : SEATS[seat].name;
@@ -498,22 +650,71 @@
       li.style.setProperty('--hue', HUES[seat]);
       const name = document.createElement('span');
       const where = document.createElement('span');
+      where.className = 'seat-where';
       where.textContent = SEATS[seat].name;
       if (info) {
-        name.textContent = `${info.nickname}${seat === ctl.mySeat ? ' (you)' : ''}${info.connected ? '' : ' — reconnecting…'}`;
+        const tags = [];
+        if (info.bot) tags.push('bot');
+        if (seat === ctl.mySeat) tags.push('you');
+        if (seat === ctl.hostSeat) tags.push('host');
+        name.textContent = `${info.nickname}${tags.length ? ` (${tags.join(', ')})` : ''}${info.connected ? '' : ' — reconnecting…'}`;
         if (seat === ctl.mySeat) li.className = 'you';
       } else {
         name.textContent = 'Waiting for a player…';
         li.className = 'empty';
       }
       li.append(name, where);
+      if (info && info.bot && ctl.isHost) {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'remove-bot';
+        remove.textContent = 'Remove';
+        remove.title = 'Remove this bot';
+        remove.addEventListener('click', () => ctl.removeBot(seat));
+        li.appendChild(remove);
+      }
       el.lobbySeats.appendChild(li);
     });
+    renderModeRow();
     const missing = ctl.seats.filter((s) => !s).length;
-    el.lobbyStatus.textContent = `The game starts automatically when 4 players have joined (${missing} more needed).`;
+    $('addBotBtn').hidden = !(ctl.isHost && missing > 0);
+    const hostNote = ctl.isHost ? ' As host, you can fill empty seats with easy bots.' : '';
+    el.lobbyStatus.textContent =
+      ctl.lobbyError || `The game starts automatically when all 4 seats are filled (${missing} more needed).${hostNote}`;
+  }
+
+  const MODE_NAMES = { turns: 'Turn-based', realtime: 'Real-time' };
+  const MODE_HELP = {
+    turns: 'Players take turns, each with a personal clock.',
+    realtime: 'No turns: place whenever you like, with a 3 s cooldown after each piece (none after a line clear).',
+  };
+
+  // The host picks the mode; everyone else sees the choice.
+  function renderModeRow() {
+    const row = $('modeRow');
+    row.innerHTML = '';
+    row.appendChild(span('label', 'Mode:'));
+    if (ctl.isHost) {
+      for (const mode of [C.TURNS, C.REALTIME]) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = MODE_NAMES[mode];
+        if (ctl.lobbyMode === mode) btn.className = 'on';
+        btn.addEventListener('click', () => ctl.setMode(mode));
+        row.appendChild(btn);
+      }
+    } else {
+      row.appendChild(span('', `${MODE_NAMES[ctl.lobbyMode]} (chosen by the host)`));
+    }
+    const help = document.createElement('p');
+    help.className = 'mode-help';
+    help.textContent = MODE_HELP[ctl.lobbyMode];
+    row.appendChild(help);
   }
 
   // --- Actions ------------------------------------------------------------------
+
+  const isRealtimeGame = () => Boolean(ui.state && ui.state.config.mode === C.REALTIME);
 
   function selectPiece(handIndex) {
     if (!ui.state || ctl.controlledSeat() === null) return;
@@ -536,7 +737,7 @@
   // The picked-up piece positioned so the pointer sits near its centre.
   function placementAt(cell) {
     const seat = ctl ? ctl.controlledSeat() : null;
-    if (seat === null || ui.selected === null || cell === null) return null;
+    if (seat === null || ui.selected === null || cell === null || ui.viewIndex !== null) return null;
     const piece = ui.state.players[seat].hand[ui.selected];
     const rotation = boardRotation();
     const offsets = P.ROTATIONS[piece][rotation];
@@ -554,10 +755,16 @@
   }
 
   function place(cell) {
+    if (ui.viewIndex !== null) {
+      setMessage('You are looking at an earlier move. Press ⏭ (or End) to go back to the live game.', true);
+      render();
+      return;
+    }
     const placement = placementAt(cell);
     if (!placement) return;
     if (!ctl.canPlace()) {
-      setMessage('Wait for your turn to place it.', true);
+      // Real-time: the hint already counts the cooldown down, so no extra message.
+      if (!isRealtimeGame()) setMessage('Wait for your turn to place it.', true);
       render();
       return;
     }
@@ -574,7 +781,8 @@
   // during the pause between turns the view stays with the player who just moved.
   function updateViewSeat() {
     const s = ui.state;
-    if (ctl.mode === 'online' && ctl.mySeat !== null) ui.viewSeat = ctl.mySeat;
+    const fixed = ctl.fixedViewSeat();
+    if (fixed !== null && fixed !== undefined) ui.viewSeat = fixed;
     else if (s.phase === 'turn' && s.turnStartedAt !== null) ui.viewSeat = s.activeSeat;
     else if (ui.viewSeat === null) ui.viewSeat = s.activeSeat !== null ? s.activeSeat : 0;
   }
@@ -640,14 +848,15 @@
     });
   }
 
-  function cellStyle(i) {
+  // `board` is the live game, or a move-history entry when looking back.
+  function cellStyle(i, board) {
     const s = ui.state;
-    const owner = s.owner[i];
-    const hp = s.hp[i];
+    const owner = board.owner[i];
+    const hp = board.hp[i];
     if (owner === C.BLOCKED) return { className: 'cell blocked', background: '', shadow: '', text: '' };
     if (owner === C.EMPTY) return { className: 'cell', background: '', shadow: '', text: '' };
     if (owner === C.GREY) {
-      return { className: 'cell', background: `hsl(0, 0%, ${GREY_LIGHTNESS[hp]}%)`, shadow: '', text: String(hp) };
+      return { className: 'cell', background: `hsl(0, 0%, ${GREY_LIGHTNESS[hp]}%)`, shadow: '', text: '' };
     }
     const hue = HUES[owner];
     const l = HP_LIGHTNESS[hp];
@@ -657,10 +866,10 @@
         className: 'cell dulled',
         background: `repeating-linear-gradient(45deg, hsla(${hue}, 20%, ${l}%, 0.35) 0 3px, transparent 3px 7px)`,
         shadow: `inset 0 0 0 3px hsl(${hue}, 22%, ${l}%)`,
-        text: String(hp),
+        text: '',
       };
     }
-    return { className: 'cell', background: `hsl(${hue}, 65%, ${l}%)`, shadow: '', text: String(hp) };
+    return { className: 'cell', background: `hsl(${hue}, 65%, ${l}%)`, shadow: '', text: '' };
   }
 
   function renderBoard() {
@@ -670,11 +879,19 @@
     for (const [side, prop] of [['top', '--edge-top'], ['bottom', '--edge-bottom'], ['left', '--edge-left'], ['right', '--edge-right']]) {
       el.board.style.setProperty(prop, `hsl(${HUES[seatAt(side)]}, 60%, 50%)`);
     }
+    // Looking back shows that history entry; live shows the game. Either way
+    // the move that produced the board is highlighted.
+    const viewing = ui.viewIndex !== null ? ui.history[ui.viewIndex] : null;
+    const board = viewing || ui.state;
+    const shown = viewing || ui.history[ui.history.length - 1];
+    const highlight = new Set(shown ? shown.cells : []);
+    el.board.classList.toggle('history-view', Boolean(viewing));
     for (let p = 0; p < C.CELL_COUNT; p++) {
       const i = map[p];
-      const style = cellStyle(i);
+      const style = cellStyle(i, board);
       const div = cellEls[p];
       let className = style.className;
+      if (highlight.has(i)) className += ' last-move';
       if (preview.has(i)) className += placement.legal ? ' preview legal' : ' preview illegal';
       if (div.classList.contains('flash')) className += ' flash';
       div.className = className;
@@ -684,7 +901,44 @@
     }
   }
 
+  // --- Move history bar ------------------------------------------------------------
+
+  function renderHistoryBar() {
+    const n = ui.history.length - 1; // number of moves (entry 0 is the start)
+    const label = $('histLabel');
+    if (ui.viewIndex === null) {
+      label.textContent = n > 0 ? `Live · ${n} move${n === 1 ? '' : 's'} so far` : 'Live · no moves yet';
+    } else if (ui.viewIndex === 0) {
+      label.textContent = `Start of the game · move 0 of ${n}`;
+    } else {
+      const entry = ui.history[ui.viewIndex];
+      label.textContent = `Move ${ui.viewIndex} of ${n}: ${who(entry.seat)} placed ${pieceName(entry.piece)}`;
+    }
+    label.classList.toggle('viewing', ui.viewIndex !== null);
+    const at = ui.viewIndex === null ? n : ui.viewIndex;
+    $('histFirst').disabled = at <= 0;
+    $('histPrev').disabled = at <= 0;
+    $('histNext').disabled = ui.viewIndex === null;
+    $('histLast').disabled = ui.viewIndex === null;
+  }
+
+  // Moves through the history; going past the newest entry returns to live.
+  function stepHistory(where) {
+    if (!ui.state || ui.history.length === 0) return;
+    const last = ui.history.length - 1;
+    const at = ui.viewIndex === null ? last : ui.viewIndex;
+    let next;
+    if (where === 'first') next = 0;
+    else if (where === 'last') next = null;
+    else if (where === 'prev') next = Math.max(0, at - 1);
+    else next = at + 1 >= last ? null : at + 1;
+    ui.viewIndex = next;
+    setMessage('');
+    render();
+  }
+
   function flash(cells) {
+    if (ui.viewIndex !== null) return; // looking back: live changes don't flash
     for (const i of cells) {
       const div = cellEls[screenOfBoard[view()][i]];
       div.classList.remove('flash');
@@ -751,8 +1005,11 @@
       const head = document.createElement('div');
       head.className = 'player-head';
       const name = span('player-name', ctl.seatLabel(p.seat));
-      if (ctl.mode === 'online') {
-        name.appendChild(span('player-seat', `${SEATS[p.seat].name}${p.seat === ctl.mySeat ? ' · you' : ''}`));
+      if (ctl.fixedViewSeat() !== null) {
+        const tags = [SEATS[p.seat].name];
+        if (ctl.isBotSeat(p.seat)) tags.push('bot');
+        if (p.seat === ctl.fixedViewSeat()) tags.push('you');
+        name.appendChild(span('player-seat', tags.join(' · ')));
         if (!ctl.seatConnected(p.seat)) name.appendChild(span('player-flag', 'offline'));
       }
       head.append(name, span('player-score', String(p.score)));
@@ -767,8 +1024,14 @@
       afk.title = 'AFK timer';
       const fill = document.createElement('div');
       afk.appendChild(fill);
-      card.append(head, meta, afk);
-      timerEls[p.seat] = { clock, afk: fill, isActive };
+      card.append(head, meta);
+      if (!isRealtimeGame()) card.appendChild(afk); // real-time has no turns, so no AFK timer
+
+      // Real-time: a 3, 2, 1 countdown badge beside the hand while cooling down.
+      const badge = span('cooldown-badge', '');
+      badge.hidden = !isRealtimeGame() || p.status !== C.ALIVE;
+      badge.title = 'Cooldown before this player can place again';
+      timerEls[p.seat] = { clock, afk: fill, isActive, badge };
 
       const hand = document.createElement('div');
       hand.className = 'hand';
@@ -783,7 +1046,10 @@
         if (isMine) slot.addEventListener('click', () => selectPiece(k));
         hand.appendChild(slot);
       });
-      card.appendChild(hand);
+      const handRow = document.createElement('div');
+      handRow.className = 'hand-row';
+      handRow.append(hand, badge);
+      card.appendChild(handRow);
 
       if (p.status === C.ALIVE && p.shuffleAvailable && ctl.canShuffle(p.seat)) {
         const btn = document.createElement('button');
@@ -798,11 +1064,24 @@
 
   // --- Top bar, hint, overlay -------------------------------------------------------
 
-  function renderTimers(t) {
+  function renderTimers(now) {
     const s = ui.state;
+    // While paused online, every clock shows the moment the game was paused.
+    const t = s.pausedAt !== null ? s.pausedAt : now;
+    const realtime = isRealtimeGame();
     for (const p of s.players) {
       const refs = timerEls[p.seat];
       if (!refs) continue;
+      if (realtime) {
+        // No personal clocks: show the cooldown instead (3, 2, 1, then ready).
+        refs.clock.textContent = '';
+        const left = p.cooldownUntil - t;
+        const cooling = !s.over && left > 0;
+        refs.badge.textContent = cooling ? String(Math.ceil(left / 1000)) : '✓';
+        refs.badge.classList.toggle('cooling', cooling);
+        refs.badge.classList.toggle('ready', !cooling && !s.over);
+        continue;
+      }
       const elapsed = refs.isActive && !s.over ? Math.max(0, t - s.turnStartedAt) : 0;
       const remaining = p.remainingMs - elapsed;
       refs.clock.textContent = `${fmtSeconds(remaining)} / ${fmtSeconds(p.capMs)} s`;
@@ -819,19 +1098,29 @@
 
     let status;
     if (s.over) status = 'Game over';
-    else if (s.phase === 'shuffleWindow') {
+    else if (realtime) {
+      status = 'Real-time · place whenever you are ready';
+      renderHint(); // the hint follows the cooldown, which changes without a new state
+    } else if (s.phase === 'shuffleWindow') {
       status = `Everyone is stuck — shuffle window ${fmtSeconds(s.shuffleWindowEndsAt - t)} s`;
     } else if (s.phase === 'interlude') {
-      const next = ctl.mode === 'online' && s.activeSeat === ctl.mySeat ? 'Your turn' : `${ctl.seatLabel(s.activeSeat)}'s turn`;
+      const next = s.activeSeat === ctl.fixedViewSeat() ? 'Your turn' : `${ctl.seatLabel(s.activeSeat)}'s turn`;
       status = `Round ${s.round} · ${next} in ${fmtSeconds(s.interludeEndsAt - t)} s`;
-    } else if (ctl.mode === 'online' && s.activeSeat === ctl.mySeat) {
+    } else if (s.activeSeat === ctl.fixedViewSeat()) {
       status = `Round ${s.round} · Your turn`;
     } else {
       status = `Round ${s.round} · ${ctl.seatLabel(s.activeSeat)} to play`;
     }
     if (ctl.mode === 'local' && ctl.paused) status += ' · PAUSED';
+    if (s.pausedAt !== null && !s.over) {
+      status = `Paused by ${ctl.seatLabel(s.pausedBy)} — only they or the host can resume`;
+    }
     el.status.textContent = status;
-    el.pauseBtn.textContent = ctl.mode === 'local' && ctl.paused ? 'Resume' : 'Pause';
+    el.pauseBtn.textContent = ctl.paused ? 'Resume' : 'Pause';
+    el.pauseBtn.disabled = s.over || (ctl.mode === 'online' && ctl.paused && !ctl.canUnpause());
+    el.pauseBtn.title = ctl.mode === 'online'
+      ? 'Pause the game for everyone (P). Only you or the host can resume it.'
+      : 'Freeze all clocks (P)';
     el.soundBtn.textContent = sound.muted ? 'Sound: off' : 'Sound: on';
   }
 
@@ -841,14 +1130,19 @@
       const s = ui.state;
       const seat = ctl.controlledSeat();
       if (s.over) text = '';
-      else if (ctl.mode === 'local' && s.phase === 'interlude') {
+      else if (ctl.fixedViewSeat() === null && s.phase === 'interlude') {
         text = `Next up: ${SEATS[s.activeSeat].name}. The board turns to face them when their turn starts.`;
       } else if (seat === null) {
-        text = ctl.mode === 'online' ? 'You are out of the game — watching.' : 'Waiting for the shuffle window to close.';
+        text = ctl.fixedViewSeat() !== null ? 'You are out of the game — watching.' : 'Waiting for the shuffle window to close.';
+      } else if (isRealtimeGame()) {
+        const left = s.players[seat].cooldownUntil - ctl.now();
+        if (left > 0) text = `Cooling down (${Math.ceil(left / 1000)}): pick and rotate your next piece meanwhile.`;
+        else if (ui.selected === null) text = 'Ready: pick a piece and place it. Clear a line to skip the cooldown.';
+        else text = 'Hover over the board and click to place. R rotates.';
       } else if (!ctl.canPlace()) {
         text = 'Not your turn yet: you can pick, rotate and preview a piece while you wait.';
       } else if (ui.selected === null) {
-        text = ctl.mode === 'online' ? 'Your turn: pick a piece from your hand.' : `${SEATS[seat].name}: pick a piece from your hand.`;
+        text = ctl.fixedViewSeat() !== null ? 'Your turn: pick a piece from your hand.' : `${SEATS[seat].name}: pick a piece from your hand.`;
       } else {
         text = 'Hover over the board and click to place. R rotates.';
       }
@@ -889,7 +1183,7 @@
   function describe(e) {
     switch (e.type) {
       case 'note': return e.text;
-      case 'gameStarted': return 'Game clock started (10:00).';
+      case 'gameStarted': return `${e.mode === 'realtime' ? 'Real-time' : 'Turn-based'} game started (10:00 on the clock).`;
       case 'turnStarted': return `${who(e.seat)}'s turn.`;
       case 'placed': return `${who(e.seat)} placed ${pieceName(e.piece)} at ${cellName(e.cells[0])}.`;
       case 'lineClearBonus': return `${who(e.seat)} gains +${e.ms / 1000} s for ${e.lines} line clear(s) (up to the cap).`;
@@ -905,6 +1199,10 @@
       case 'greyed': return `${e.cells.length} block(s) turned grey.`;
       case 'scored': return null;
       case 'interlude': return null;
+      case 'cooldown': return null;
+      case 'shuffleOffered': return `${who(e.seat)} has no legal move: a shuffle is available.`;
+      case 'paused': return `${who(e.seat)} paused the game.`;
+      case 'resumed': return `${who(e.seat)} resumed the game after ${Math.round(e.pausedMs / 1000)} s.`;
       case 'eliminated': return `${who(e.seat)} has no blocks left and is eliminated.`;
       case 'passed':
         return e.reason === 'afk'
@@ -942,12 +1240,12 @@
 
   function render() {
     if (!ui.state || !ctl) return;
-    el.pauseBtn.hidden = ctl.mode !== 'local';
     el.newGameBtn.hidden = ctl.mode !== 'local';
     renderBoard();
     renderPanels();
     renderHint();
     renderOverlay();
+    renderHistoryBar();
     renderTimers(ctl.now());
   }
 
@@ -966,8 +1264,12 @@
       ui.selected = null;
       render();
     } else if (['1', '2', '3', '4'].includes(e.key)) selectPiece(Number(e.key) - 1);
-    else if ((e.key === 'p' || e.key === 'P') && ctl.mode === 'local') ctl.togglePause();
+    else if (e.key === 'p' || e.key === 'P') ctl.togglePause();
     else if (e.key === 'm' || e.key === 'M') toggleSound();
+    else if (e.key === 'ArrowLeft') stepHistory('prev');
+    else if (e.key === 'ArrowRight') stepHistory('next');
+    else if (e.key === 'Home') stepHistory('first');
+    else if (e.key === 'End') stepHistory('last');
   });
 
   function toggleSound() {
@@ -985,6 +1287,15 @@
     ctl = createLocalController();
     ctl.start();
   });
+  $('vsBotsBtn').addEventListener('click', () => {
+    ctl = createLocalController({ botSeats: [1, 2, 3] });
+    ctl.start();
+  });
+  $('vsBotsRealtimeBtn').addEventListener('click', () => {
+    ctl = createLocalController({ botSeats: [1, 2, 3], mode: C.REALTIME });
+    ctl.start();
+  });
+  $('addBotBtn').addEventListener('click', () => ctl && ctl.mode === 'online' && ctl.addBot());
   $('createBtn').addEventListener('click', () => {
     const name = nickname();
     startOnline((c) => c.create(name));
@@ -1015,8 +1326,23 @@
     }
     ctl.leave();
   });
-  el.pauseBtn.addEventListener('click', () => ctl && ctl.mode === 'local' && ctl.togglePause());
+  el.pauseBtn.addEventListener('click', () => ctl && ctl.togglePause());
   el.soundBtn.addEventListener('click', toggleSound);
+  $('histFirst').addEventListener('click', () => stepHistory('first'));
+  $('histPrev').addEventListener('click', () => stepHistory('prev'));
+  $('histNext').addEventListener('click', () => stepHistory('next'));
+  $('histLast').addEventListener('click', () => stepHistory('last'));
+
+  // Rulebook drawer, reachable from every screen.
+  function setRulesOpen(open) {
+    $('rulesDrawer').hidden = !open;
+    $('rulesTab').setAttribute('aria-expanded', String(open));
+  }
+  $('rulesTab').addEventListener('click', () => setRulesOpen($('rulesDrawer').hidden));
+  $('rulesClose').addEventListener('click', () => setRulesOpen(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('rulesDrawer').hidden) setRulesOpen(false);
+  });
   el.newGameBtn.addEventListener('click', () => ctl && ctl.mode === 'local' && ctl.start());
   el.overlayNew.addEventListener('click', () => {
     if (ctl.mode === 'local') ctl.start();

@@ -102,6 +102,29 @@ function isLegalPlacement(owner, seat, cells) {
   return cells.some((i) => NEIGHBOURS[i].some((n) => owner[n] === seat));
 }
 
+// Every distinct legal placement of the hand's pieces, as moves
+// { handIndex, rotation, x, y }. Placements covering the same cells with the
+// same piece (e.g. the O's identical rotations) are listed once.
+function legalPlacements(owner, seat, hand) {
+  const moves = [];
+  const seen = new Set();
+  hand.forEach((piece, handIndex) => {
+    for (let rotation = 0; rotation < 4; rotation++) {
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const cells = pieceCells(piece, rotation, x, y);
+          if (!isLegalPlacement(owner, seat, cells)) continue;
+          const key = `${piece}:${[...cells].sort((a, b) => a - b).join(',')}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          moves.push({ handIndex, rotation, x, y });
+        }
+      }
+    }
+  });
+  return moves;
+}
+
 function hasLegalMove(owner, seat, hand) {
   for (const piece of new Set(hand)) {
     for (let rotation = 0; rotation < 4; rotation++) {
@@ -129,6 +152,7 @@ module.exports = {
   createStartingBoard,
   pieceCells,
   isLegalPlacement,
+  legalPlacements,
   hasLegalMove,
   countBlocks,
 };

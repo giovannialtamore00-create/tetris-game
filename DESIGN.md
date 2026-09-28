@@ -214,6 +214,13 @@ The server is authoritative. Clients send intents; the server validates, applies
 - **Cleanup.** A lobby is removed as soon as it has no players. A game with nobody connected is removed after 10 minutes.
 - The room layer runs each room's one deadline timer (§17) and applies expired deadlines before every action.
 
+### Easy bots (`src/core/bot.js`)
+
+- **Behaviour.** An easy bot plays a uniformly random legal placement (each distinct placement counted once). It uses a shuffle offer as soon as it has one. On its live turn it "thinks" for 1.5–2.5 s before moving, well inside the AFK timer, so humans can follow the game.
+- **Online.** The **host** (the first human seat, normally the room's creator; if they leave the lobby, the next human) can add an easy bot to the first free seat, or remove one, before the game starts. Bots count towards the four seats, so a host can start at once with three bots. The server plays the bots with the room's timers. A lobby is removed as soon as no humans are left in it, even with bots seated. Bots are listed as bots in `seats` (`bot: true`) and are always shown as connected.
+- **Locally.** The menu's **Play vs 3 easy bots** starts a local game where you play South and the bots play in the browser. Pausing the local game pauses the bots too.
+- Bots follow every rule like human players, including scoring, the pause between turns and the clocks.
+
 ## 14. State
 
 | Part | Fields |
@@ -275,8 +282,8 @@ The room layer keeps **one** `setTimeout` set to `nextDeadline(state)` and reset
 - One public state is broadcast to every client after each change, together with the events that produced it. At this size, full snapshots are cheaper than diffs.
 - The public state is the full game state **minus each player's bag**, whose queue and random-generator state would reveal upcoming pieces. Hands stay visible (§3).
 - Each state message carries the server's current time. Clients work out the offset between their clock and the server's, then count down locally (game clock, each player's `remaining/cap`, the active player's AFK bar, any shuffle window) and resynchronise on every update.
-- Client → server messages: `create { nickname }`, `join { code, nickname }`, `resume { code, token }`, `leave`, `move { handIndex, rotation, x, y }`, `shuffle`.
-- Server → client messages: `joined { code, seat, token }`, `lobby { code, you, seats }`, `state { code, you, seats, state, events, serverNow }`, `error { error }`, `replaced`, `left`. `seats` lists each seat's nickname and whether it is connected.
+- Client → server messages: `create { nickname }`, `join { code, nickname }`, `resume { code, token }`, `leave`, `move { handIndex, rotation, x, y }`, `shuffle`, and for the host in the lobby `addBot` and `removeBot { seat }`.
+- Server → client messages: `joined { code, seat, token }`, `lobby { code, you, host, seats }`, `state { code, you, seats, state, events, serverNow }`, `error { error }`, `replaced`, `left`. `seats` lists each seat's nickname, whether it is a bot, and whether it is connected.
 - Players can pick up, rotate and preview a piece at any time; the client only sends the move on their live turn.
 - The server works only in absolute board coordinates. Each client turns its view so the viewer's own edge is at the bottom: board cell (r, c) is drawn a quarter turn anticlockwise per seat after South, and a piece rotation the player picks on screen is converted to board terms before it is sent.
 - **Layout.** The board sits in the centre of the screen with a panel beside each edge for the player on that edge: name, score, clock, AFK bar and hand. The viewer's own panel is below the board and twice the size of the others, with the shuffle button under their hand. Online, the viewer is always you. In hot-seat it is whoever's turn is live, and the view stays with the player who just moved until the next turn starts.
@@ -333,3 +340,50 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 | AFK timeout | 10 s |
 | Shuffle window | 10 s |
 | Game length | 10 minutes |
+| Game mode | `turns` (default) or `realtime` (`mode`) |
+| Real-time cooldown | 3 s (`cooldownMs`) |
+
+---
+
+# Part 3 — Real-time mode
+
+## 21. Real-time mode
+
+A second game mode, chosen by the host in the room lobby (or from the menu when playing against bots). **All rules of Part 1 apply, except where this section says otherwise.**
+
+**No turns.** Every living player may place a piece at any time. The server applies placements in the order they arrive; if two players go for the same cells at nearly the same moment, the second placement is no longer legal and is rejected.
+
+**Cooldown.** After placing a piece, a player must wait **3 s** before placing another. If the placement completed at least one line, there is **no cooldown**: they can place again straight away. While cooling down, a player can still pick up, rotate and preview pieces, and can shuffle. The client shows a 3, 2, 1 countdown next to each hand.
+
+**No personal clocks.** There are no personal clocks, move or line-clear time bonuses, AFK timer, timing out (so no dulled blocks), pause between turns, rounds, passive round points, forced passes or shuffle window. The **10-minute game clock** still ends the game, as does having at most one player left alive. Scoring, ranking and tie-breaks are unchanged.
+
+**Special pieces.** A line clear refills the played slot **from the bag**, not with a special piece. Special pieces come **only from shuffling**: a shuffled hand is 3 pieces from the bag plus 1 guaranteed special piece.
+
+**Shuffle offer.** Whenever a living player has no legal move, they get a shuffle offer at once; this is checked after every placement and shuffle. They can use it immediately. If the new hand still has no legal move, a fresh offer is available at once. As in turn-based mode, an unused offer disappears when the player makes a legal move.
+
+**Bots.** An easy bot acts when its cooldown is over plus a 1.5–2.5 s think: it places a random legal piece, or shuffles if it has none and an offer is available.
+
+**Implementation (real-time).** `mode: 'realtime'` in the game config. The game runs in phase `realtime` with no active seat; each player has `cooldownUntil`. Moves are rejected with `coolingDown` before it and `notAlive` for players who are out. The only deadline is the game clock. New events: `cooldown { seat, until }` and `shuffleOffered { seat }`. The room lobby sends the chosen `mode`, and the host changes it with `setMode { mode }`.
+
+---
+
+# Part 4 — Pause, move history and rulebook
+
+## 22. Pause
+
+- **Online, any player can pause** the game for everyone. Only **the player who paused, or the host**, can resume it.
+- A pause freezes the whole game: the 10-minute game clock, personal clocks, the AFK timer, the pause between turns, a shuffle window and real-time cooldowns. Nobody can place or shuffle while paused, and bots wait.
+- Resuming moves every pending time forward by the length of the pause, so the game carries on exactly where it stopped: a player who had 7 s left before an AFK pass still has 7 s.
+- **Implementation.** `pause(state, seat, now)` and `resume(state, seat, now)` in the core set and clear `pausedAt` / `pausedBy`; while paused, `nextDeadline` returns nothing and actions fail with `paused`. The room decides who may resume. Messages: `pause` and `unpause` (not `resume`, which already means reconnecting). State messages now also carry the room's `host`. Events: `paused { seat }`, `resumed { seat, pausedMs }`.
+- The local modes (hot-seat and vs bots) keep their own Pause button, which freezes the page's clock.
+
+## 23. Move history
+
+- Under the board, ⏮ ◀ ▶ ⏭ (or the arrow keys, Home and End) step back through **every move since the start of the game**, like chess.com, during the game and after it. The board shows how it looked right after that move, with the placed piece highlighted; the label says whose move it was. The live board highlights the latest move the same way.
+- Only the board goes back in time; scores, hands and clocks stay live. New moves keep arriving while you look back; ⏭ returns to the live game. You cannot place a piece while looking back.
+- **Implementation.** A history entry is the board (`owner`, `hp`) after the start and after every placement, with the move's seat, piece and cells. The client builds entries from the states it receives; the server keeps the same list per room and sends it (`history { entries }`) to a player who reconnects, so a refresh keeps the full history.
+
+## 24. Rulebook and board display
+
+- A **📖 Rules** tab on the left edge of every screen opens an informal rulebook: the goal, roots and placing, pieces, lines and toughness, cutting branches, grey clusters, points, shuffles, and the differences between the two modes.
+- Board cells no longer show HP numbers; toughness is shown by shading only (darker = tougher).

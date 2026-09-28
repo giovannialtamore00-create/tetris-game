@@ -102,7 +102,7 @@ describe('rooms: creating and joining', () => {
     assert.equal(joined.seat, SOUTH);
     assert.match(joined.token, /^[0-9a-f]{32}$/);
     const lobby = ann.last('lobby');
-    assert.deepEqual(lobby.seats, [{ nickname: 'Ann', connected: true }, null, null, null]);
+    assert.deepEqual(lobby.seats, [{ nickname: 'Ann', bot: false, connected: true }, null, null, null]);
     assert.equal(lobby.you, SOUTH);
   });
 
@@ -246,7 +246,7 @@ describe('rooms: reconnecting', () => {
     const code = ann.last('joined').code;
     rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
     rooms.handleDisconnect(bob);
-    assert.deepEqual(ann.last('lobby').seats[1], { nickname: 'Bob', connected: false });
+    assert.deepEqual(ann.last('lobby').seats[1], { nickname: 'Bob', bot: false, connected: false });
     env.advance(20_000);
     assert.equal(ann.last('lobby').seats[1], null);
   });
@@ -264,7 +264,7 @@ describe('rooms: reconnecting', () => {
     const bobAgain = fakeConn();
     rooms.handleMessage(bobAgain, { type: 'resume', code, token });
     env.advance(30_000);
-    assert.deepEqual(ann.last('lobby').seats[1], { nickname: 'Bob', connected: true });
+    assert.deepEqual(ann.last('lobby').seats[1], { nickname: 'Bob', bot: false, connected: true });
   });
 });
 
@@ -295,6 +295,203 @@ describe('rooms: leaving and cleanup', () => {
     assert.equal(rooms.rooms.size, 1);
     env.advance(60_000);
     assert.equal(rooms.rooms.size, 0);
+  });
+});
+
+describe('rooms: bots', () => {
+  function hostRoom() {
+    const { env, rooms } = setup();
+    const ann = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    const code = ann.last('joined').code;
+    return { env, rooms, ann, code, room: rooms.rooms.get(code) };
+  }
+
+  it('lets the host add easy bots, shown as bots in the lobby', () => {
+    const { rooms, ann } = hostRoom();
+    rooms.handleMessage(ann, { type: 'addBot' });
+    const lobby = ann.last('lobby');
+    assert.equal(lobby.host, SOUTH);
+    assert.deepEqual(lobby.seats[1], { nickname: 'Easy bot 1', bot: true, connected: true });
+  });
+
+  it('refuses bot changes from anyone but the host', () => {
+    const { rooms, code } = hostRoom();
+    const bob = fakeConn();
+    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
+    rooms.handleMessage(bob, { type: 'addBot' });
+    assert.equal(bob.last('error').error, 'notHost');
+  });
+
+  it('lets the host remove a bot, freeing its seat', () => {
+    const { rooms, ann } = hostRoom();
+    rooms.handleMessage(ann, { type: 'addBot' });
+    rooms.handleMessage(ann, { type: 'removeBot', seat: 1 });
+    assert.equal(ann.last('lobby').seats[1], null);
+    rooms.handleMessage(ann, { type: 'removeBot', seat: 0 });
+    assert.equal(ann.last('error').error, 'notABot');
+  });
+
+  it('starts the game once bots fill the room', () => {
+    const { rooms, ann } = hostRoom();
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    const msg = ann.last('state');
+    assert.ok(msg);
+    assert.deepEqual(msg.seats.map((s) => s.bot), [false, true, true, true]);
+    rooms.handleMessage(ann, { type: 'addBot' });
+    assert.equal(ann.last('error').error, 'gameStarted');
+  });
+
+  it('plays bot turns on the server, within the AFK timer', () => {
+    const { env, rooms, ann, room } = hostRoom();
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    // Let the game run for a while: bots move on their own; Ann is AFK-passed.
+    env.advance(60_000);
+    const placed = ann.all('state').flatMap((m) => m.events).filter((e) => e.type === 'placed');
+    const botSeats = new Set(placed.map((e) => e.seat));
+    assert.ok([1, 2, 3].every((seat) => botSeats.has(seat)), `bots that moved: ${[...botSeats]}`);
+    const afk = ann.all('state').flatMap((m) => m.events).filter((e) => e.type === 'passed' && e.reason === 'afk');
+    assert.ok(afk.every((e) => e.seat === SOUTH), 'a bot was AFK-passed');
+    assert.equal(room.state.players[SOUTH].status === 'alive' || room.state.over, true);
+  });
+
+  it('removes a lobby whose only human leaves, even with bots seated', () => {
+    const { rooms, ann } = hostRoom();
+    rooms.handleMessage(ann, { type: 'addBot' });
+    rooms.handleMessage(ann, { type: 'leave' });
+    assert.equal(rooms.rooms.size, 0);
+  });
+
+  it('passes hosting to the next human when the host leaves the lobby', () => {
+    const { rooms, ann, code } = hostRoom();
+    const bob = fakeConn();
+    rooms.handleMessage(ann, { type: 'addBot' });
+    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
+    rooms.handleMessage(ann, { type: 'leave' });
+    assert.equal(bob.last('lobby').host, 2);
+    rooms.handleMessage(bob, { type: 'addBot' });
+    assert.equal(bob.last('lobby').seats.filter((s) => s && s.bot).length, 2);
+  });
+});
+
+describe('rooms: game mode', () => {
+  function hostRoom() {
+    const { env, rooms } = setup();
+    const ann = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    const code = ann.last('joined').code;
+    return { env, rooms, ann, code, room: rooms.rooms.get(code) };
+  }
+
+  it('is turn-based unless the host picks real-time in the lobby', () => {
+    const { rooms, ann } = hostRoom();
+    assert.equal(ann.last('lobby').mode, 'turns');
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
+    assert.equal(ann.last('lobby').mode, 'realtime');
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'chess' });
+    assert.equal(ann.last('error').error, 'badMode');
+  });
+
+  it('only lets the host change the mode', () => {
+    const { rooms, code } = hostRoom();
+    const bob = fakeConn();
+    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
+    rooms.handleMessage(bob, { type: 'setMode', mode: 'realtime' });
+    assert.equal(bob.last('error').error, 'notHost');
+  });
+
+  it('starts a real-time game when the host chose real-time', () => {
+    const { rooms, ann } = hostRoom();
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    const { state } = ann.last('state');
+    assert.equal(state.config.mode, 'realtime');
+    assert.equal(state.phase, 'realtime');
+  });
+
+  it('lets bots play a real-time game at their own pace, respecting cooldowns', () => {
+    const { env, rooms, ann } = hostRoom();
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    env.advance(30_000);
+    const placed = ann.all('state').flatMap((m) => m.events).filter((e) => e.type === 'placed');
+    for (const seat of [1, 2, 3]) {
+      const moves = placed.filter((e) => e.seat === seat);
+      // At most one piece per 3 s cooldown + 1.5 s think, with line clears allowing more.
+      assert.ok(moves.length >= 3, `bot ${seat} placed only ${moves.length} pieces`);
+      assert.ok(moves.length <= 30, `bot ${seat} placed ${moves.length} pieces`);
+    }
+  });
+});
+
+describe('rooms: pause', () => {
+  it('lets any player pause the game for everyone', () => {
+    const { env, rooms, conns } = fullRoom();
+    env.advance(2_000);
+    rooms.handleMessage(conns[2], { type: 'pause' });
+    for (const conn of conns) {
+      const msg = conn.last('state');
+      assert.equal(msg.state.pausedBy, 2);
+      assert.ok(msg.events.some((e) => e.type === 'paused' && e.seat === 2));
+    }
+  });
+
+  it('lets only the player who paused, or the host, resume', () => {
+    const { env, rooms, conns, room } = fullRoom();
+    env.advance(2_000);
+    rooms.handleMessage(conns[2], { type: 'pause' });
+    rooms.handleMessage(conns[1], { type: 'unpause' });
+    assert.equal(conns[1].last('error').error, 'notAllowedToResume');
+    assert.notEqual(room.state.pausedAt, null);
+    rooms.handleMessage(conns[0], { type: 'unpause' }); // Ann is the host
+    assert.equal(room.state.pausedAt, null);
+
+    rooms.handleMessage(conns[3], { type: 'pause' });
+    rooms.handleMessage(conns[3], { type: 'unpause' }); // the pauser themselves
+    assert.equal(room.state.pausedAt, null);
+  });
+
+  it('stops all deadlines while paused, then carries on', () => {
+    const { env, rooms, conns, room } = fullRoom();
+    env.advance(2_000); // first turn starts
+    const seat = room.state.activeSeat;
+    rooms.handleMessage(conns[0], { type: 'pause' });
+    env.advance(60_000);
+    const passes = () => conns[0].all('state').flatMap((m) => m.events).filter((e) => e.type === 'passed');
+    assert.equal(passes().length, 0);
+    rooms.handleMessage(conns[0], { type: 'unpause' });
+    env.advance(10_000);
+    assert.deepEqual(passes().map((e) => e.seat), [seat]);
+  });
+
+  it('keeps bots waiting while paused', () => {
+    const { env, rooms } = setup();
+    const ann = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
+    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+    rooms.handleMessage(ann, { type: 'pause' });
+    const before = ann.sent.length;
+    env.advance(30_000);
+    assert.equal(ann.sent.length, before);
+  });
+});
+
+describe('rooms: move history', () => {
+  it('records the start and every placement, and sends it to a player who reconnects', () => {
+    const { env, rooms, conns, code, room } = fullRoom();
+    env.advance(2_000);
+    const seat = room.state.activeSeat;
+    rooms.handleMessage(conns[seat], { type: 'move', move: firstLegalMove(room.state, seat) });
+    assert.equal(room.history.length, 2);
+    assert.equal(room.history[0].seat, null); // the starting board
+    assert.equal(room.history[1].seat, seat);
+    assert.deepEqual(room.history[1].owner, room.state.owner);
+
+    const token = conns[1].last('joined').token;
+    const again = fakeConn();
+    rooms.handleMessage(again, { type: 'resume', code, token });
+    assert.deepEqual(again.last('history').entries, room.history);
   });
 });
 

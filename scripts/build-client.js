@@ -45,6 +45,7 @@ ${modules.join('\n\n')}
     pieces: load('pieces'),
     board: load('board'),
     game: load('game'),
+    bot: load('bot'),
     invariants: load('invariants'),
   };
 })();

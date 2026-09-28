@@ -6,6 +6,7 @@ const {
   ALIVE,
   ELIMINATED,
   TIMED_OUT,
+  REALTIME,
   DEFAULT_CONFIG,
 } = require('./constants');
 const { deriveSeed, createRng, nextInt } = require('./rng');
@@ -50,6 +51,7 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
       remainingMs: cfg.clockStartMs,
       capMs: cfg.clockStartMs,
       shuffleAvailable: false,
+      cooldownUntil: now, // real-time mode: may place again from this time
     });
   }
 
@@ -59,7 +61,7 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
     hp,
     root,
     players,
-    phase: 'turn', // 'interlude' | 'turn' | 'shuffleWindow' | 'over'
+    phase: 'turn', // 'interlude' | 'turn' | 'shuffleWindow' | 'realtime' | 'over'
     activeSeat: null, // the player to move (during an interlude: the next one)
     turnStartedAt: null, // set while a turn is live
     interludeEndsAt: null, // set during the pause before a turn
@@ -72,12 +74,33 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
     shuffleWindowEndsAt: null,
     over: false,
     result: null,
+    pausedAt: null, // §22: set while the game is paused
+    pausedBy: null,
   };
 
-  const events = [{ type: 'gameStarted', at: now, endsAt: s.endsAt }];
+  const events = [{ type: 'gameStarted', mode: cfg.mode, at: now, endsAt: s.endsAt }];
+  if (cfg.mode === REALTIME) {
+    // §21: no turns; everyone may place from the start.
+    s.phase = 'realtime';
+    refreshOffers(s, now, events);
+    return ok(s, events);
+  }
   const firstSeat = nextInt(createRng(deriveSeed(seed, 0)), SEAT_COUNT);
   queueTurn(s, firstSeat, now, events);
   return ok(s, events);
+}
+
+const isRealtime = (s) => s.config.mode === REALTIME;
+
+// §21: in real-time mode a living player with no legal move gets a shuffle
+// offer at once. Checked after every change to the board or a hand.
+function refreshOffers(s, now, events) {
+  for (const p of s.players) {
+    if (p.status === ALIVE && !p.shuffleAvailable && !hasLegalMove(s.owner, p.seat, p.hand)) {
+      p.shuffleAvailable = true;
+      events.push({ type: 'shuffleOffered', seat: p.seat, at: now });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +119,7 @@ function nextLivingSeat(s, from) {
 // Pending deadlines in the order they must be applied: chronological, with
 // ties broken game clock > personal clock > AFK > shuffle window > interlude (§9).
 function pendingDeadlines(s) {
-  if (s.over) return [];
+  if (s.over || s.pausedAt !== null) return []; // nothing falls due while paused (§22)
   const list = [{ at: s.endsAt, kind: 'gameEnd', priority: 0 }];
   if (s.phase === 'turn' && s.turnStartedAt !== null) {
     const p = s.players[s.activeSeat];
@@ -121,6 +144,7 @@ function nextDeadline(state) {
 // tick() first, so a late timer can never let a stale action through (§17).
 function actionBlocker(state, now) {
   if (state.over) return 'gameOver';
+  if (state.pausedAt !== null) return 'paused';
   const deadline = nextDeadline(state);
   if (deadline !== null && now >= deadline) return 'tickRequired';
   return null;
@@ -242,12 +266,17 @@ function startTurn(state, seat, now) {
 function applyMove(state, seat, move, now) {
   const blocker = actionBlocker(state, now);
   if (blocker) return fail(blocker);
-  if (state.phase !== 'turn' || state.activeSeat !== seat || state.turnStartedAt === null) {
+  const realtime = isRealtime(state);
+  const player = state.players[seat];
+  if (realtime) {
+    // §21: anyone alive may place at any time, once their cooldown is over.
+    if (!player || player.status !== ALIVE) return fail('notAlive');
+    if (now < player.cooldownUntil) return fail('coolingDown');
+  } else if (state.phase !== 'turn' || state.activeSeat !== seat || state.turnStartedAt === null) {
     return fail('notYourTurn');
   }
 
   const { handIndex, rotation, x, y } = move || {};
-  const player = state.players[seat];
   if (!Number.isInteger(handIndex) || handIndex < 0 || handIndex >= player.hand.length) {
     return fail('invalidHandIndex');
   }
@@ -261,6 +290,50 @@ function applyMove(state, seat, move, now) {
   const events = [];
   const cfg = s.config;
   const mover = s.players[seat];
+
+  // §15 step 2: charge time (turn-based only; real-time has no personal clocks).
+  if (!realtime) mover.remainingMs -= now - s.turnStartedAt;
+  const lines = resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events);
+  mover.shuffleAvailable = false;
+
+  if (realtime) {
+    // §21: refill from the bag (no special reward piece); a line clear skips the cooldown.
+    if (mover.status === ALIVE) {
+      mover.hand[handIndex] = drawPiece(mover.bag);
+      mover.cooldownUntil = lines.length > 0 ? now : now + cfg.cooldownMs;
+      events.push({ type: 'cooldown', seat, until: mover.cooldownUntil, at: now });
+    }
+    if (livingSeats(s).length <= 1) endGame(s, 'lastPlayerStanding', now, events);
+    else refreshOffers(s, now, events);
+    return ok(s, events);
+  }
+
+  // Step 9: mover bookkeeping. Completing a line is rewarded by refilling the
+  // played slot with a special piece instead of a bag draw (§3).
+  if (mover.status === ALIVE) {
+    if (lines.length > 0) {
+      mover.hand[handIndex] = drawSpecialPiece(mover.bag);
+      events.push({ type: 'rewardPiece', seat, piece: mover.hand[handIndex], handIndex });
+    } else {
+      mover.hand[handIndex] = drawPiece(mover.bag);
+    }
+    // +2 s for the move, plus 2 s for every line it completed (§8).
+    const lineBonusMs = lines.length * cfg.lineClearBonusMs;
+    if (lineBonusMs > 0) events.push({ type: 'lineClearBonus', seat, lines: lines.length, ms: lineBonusMs });
+    addBonus(mover, cfg.moveBonusMs + lineBonusMs);
+  }
+  s.turnsTakenThisRound[seat] = true;
+
+  // Steps 10-12.
+  endTurn(s, now, events);
+  return ok(s, events);
+}
+
+// §15 steps 3-8, shared by both modes: place the piece, apply line hits and
+// destructions, resolve orphan and grey clusters, and eliminate players left
+// with no blocks. Mutates `s`; returns the completed lines.
+function resolvePlacement(s, seat, { piece, rotation, x, y, cells }, now, events) {
+  const cfg = s.config;
   const statusOf = (k) => s.players[k].status;
   const scoreDelta = new Array(SEAT_COUNT).fill(0);
   const award = (k, points) => {
@@ -268,13 +341,12 @@ function applyMove(state, seat, move, now) {
     scoreDelta[k] += points;
   };
 
-  // §15 steps 2-3: charge time, place.
-  mover.remainingMs -= now - s.turnStartedAt;
+  // Step 3: place.
   for (const i of cells) {
     s.owner[i] = seat;
     s.hp[i] = cfg.placedHp;
   }
-  events.push({ type: 'placed', seat, piece, rotation, x, y, cells });
+  events.push({ type: 'placed', seat, piece, rotation, x, y, cells, at: now });
 
   // Steps 4-5: line hits and destructions.
   const lines = completedLines(s.owner, cells);
@@ -321,27 +393,7 @@ function applyMove(state, seat, move, now) {
       events.push({ type: 'eliminated', seat: p.seat, at: now });
     }
   }
-
-  // Step 9: mover bookkeeping. Completing a line is rewarded by refilling the
-  // played slot with a special piece instead of a bag draw (§3).
-  mover.shuffleAvailable = false;
-  if (mover.status === ALIVE) {
-    if (lines.length > 0) {
-      mover.hand[handIndex] = drawSpecialPiece(mover.bag);
-      events.push({ type: 'rewardPiece', seat, piece: mover.hand[handIndex], handIndex });
-    } else {
-      mover.hand[handIndex] = drawPiece(mover.bag);
-    }
-    // +2 s for the move, plus 2 s for every line it completed (§8).
-    const lineBonusMs = lines.length * cfg.lineClearBonusMs;
-    if (lineBonusMs > 0) events.push({ type: 'lineClearBonus', seat, lines: lines.length, ms: lineBonusMs });
-    addBonus(mover, cfg.moveBonusMs + lineBonusMs);
-  }
-  s.turnsTakenThisRound[seat] = true;
-
-  // Steps 10-12.
-  endTurn(s, now, events);
-  return ok(s, events);
+  return lines;
 }
 
 function shuffle(state, seat, now) {
@@ -360,6 +412,12 @@ function shuffle(state, seat, now) {
   p.hand.push(drawSpecialPiece(p.bag));
   p.shuffleAvailable = false;
   events.push({ type: 'shuffled', seat, hand: [...p.hand], at: now });
+
+  if (isRealtime(s)) {
+    // §21: still stuck after shuffling? A fresh offer is available at once.
+    refreshOffers(s, now, events);
+    return ok(s, events);
+  }
 
   const ownLiveTurn = s.phase === 'turn' && s.activeSeat === seat && s.turnStartedAt !== null;
   if (ownLiveTurn && !hasLegalMove(s.owner, seat, p.hand)) {
@@ -407,8 +465,41 @@ function tick(state, now) {
   return ok(s, events);
 }
 
+// §22: pausing freezes the whole game: the game clock, personal clocks, the
+// AFK timer, the pause between turns, a shuffle window and real-time
+// cooldowns. Who may resume is decided by the room (the pauser or the host).
+function pause(state, seat, now) {
+  const blocker = actionBlocker(state, now);
+  if (blocker) return fail(blocker);
+  if (!state.players[seat]) return fail('notInGame');
+  const s = clone(state);
+  s.pausedAt = now;
+  s.pausedBy = seat;
+  return ok(s, [{ type: 'paused', seat, at: now }]);
+}
+
+// Resuming shifts every pending time forward by the length of the pause, so
+// the game carries on exactly where it stopped.
+function resume(state, seat, now) {
+  if (state.over) return fail('gameOver');
+  if (state.pausedAt === null) return fail('notPaused');
+  const s = clone(state);
+  const pausedMs = Math.max(0, now - s.pausedAt);
+  const shift = (t) => (t === null ? null : t + pausedMs);
+  s.endsAt = shift(s.endsAt);
+  s.turnStartedAt = shift(s.turnStartedAt);
+  s.interludeEndsAt = shift(s.interludeEndsAt);
+  s.shuffleWindowEndsAt = shift(s.shuffleWindowEndsAt);
+  for (const p of s.players) p.cooldownUntil = shift(p.cooldownUntil);
+  s.pausedAt = null;
+  s.pausedBy = null;
+  return ok(s, [{ type: 'resumed', seat, at: now, pausedMs }]);
+}
+
 module.exports = {
   createGame,
+  pause,
+  resume,
   startTurn,
   applyMove,
   shuffle,
