@@ -4,11 +4,15 @@
   "description": "",
   "main": "src/core/index.js",
   "scripts": {
+    "start": "node server/index.js",
     "test": "node --test",
     "client": "node scripts/build-client.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
 }

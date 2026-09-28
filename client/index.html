@@ -3,44 +3,87 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tetris hot-seat</title>
+  <title>Tetris</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="game-clock" id="gameClock">10:00</div>
-    <div class="status" id="status"></div>
-    <div class="controls">
-      <button id="pauseBtn" type="button" title="Freeze all clocks (P)">Pause</button>
-      <button id="newGameBtn" type="button">New game</button>
+  <!-- Menu -->
+  <section class="screen menu" id="menuScreen">
+    <h1>Tetris</h1>
+    <div class="menu-card">
+      <h2>Play online</h2>
+      <label class="field">Nickname
+        <input id="nicknameInput" maxlength="16" autocomplete="nickname" placeholder="Your name">
+      </label>
+      <button id="createBtn" type="button" class="primary">Create a room</button>
+      <div class="join-row">
+        <input id="codeInput" maxlength="4" placeholder="CODE" aria-label="Room code" autocomplete="off">
+        <button id="joinBtn" type="button">Join room</button>
+      </div>
+      <p class="menu-error" id="menuError" role="alert"></p>
+      <p class="menu-note" id="onlineNote"></p>
     </div>
-  </header>
+    <div class="menu-card">
+      <h2>Play on this screen</h2>
+      <button id="hotseatBtn" type="button">Local hot-seat (4 players, 1 screen)</button>
+    </div>
+  </section>
 
-  <main class="layout">
-    <section class="board-area">
-      <div class="board-frame" id="boardFrame">
-        <div class="edge-label north">North</div>
-        <div class="edge-label west">West</div>
-        <div class="board" id="board" aria-label="Game board"></div>
-        <div class="edge-label east">East</div>
-        <div class="edge-label south">South</div>
+  <!-- Lobby -->
+  <section class="screen lobby" id="lobbyScreen" hidden>
+    <div class="menu-card">
+      <h2>Room <span class="room-code" id="lobbyCode"></span></h2>
+      <p class="menu-note">Share the code, or send this link to your friends:</p>
+      <div class="join-row">
+        <input id="lobbyLink" readonly aria-label="Invite link">
+        <button id="copyLinkBtn" type="button">Copy</button>
       </div>
-      <p class="hint" id="hint"></p>
-      <p class="help">
-        Pick a piece from the active player's hand (or press 1–4) ·
-        <kbd>R</kbd> or right-click to rotate, <kbd>Shift</kbd>+<kbd>R</kbd> to rotate back ·
-        click the board to place · <kbd>Esc</kbd> to drop the piece · <kbd>P</kbd> to pause
-      </p>
-    </section>
+      <ol class="lobby-seats" id="lobbySeats"></ol>
+      <p class="lobby-status" id="lobbyStatus"></p>
+      <button id="leaveLobbyBtn" type="button">Leave room</button>
+    </div>
+  </section>
 
-    <aside class="sidebar">
-      <div class="players" id="players"></div>
-      <div class="log-panel">
-        <h2>Events</h2>
-        <ol class="log" id="log"></ol>
+  <!-- Game -->
+  <div class="screen" id="gameScreen" hidden>
+    <header class="topbar">
+      <div class="game-clock" id="gameClock">10:00</div>
+      <div class="status" id="status"></div>
+      <div class="controls">
+        <button id="pauseBtn" type="button" title="Freeze all clocks (P)">Pause</button>
+        <button id="newGameBtn" type="button">New game</button>
+        <button id="menuBtn" type="button">Menu</button>
       </div>
-    </aside>
-  </main>
+    </header>
+
+    <div class="banner" id="banner" hidden></div>
+
+    <main class="layout">
+      <section class="board-area">
+        <div class="board-frame" id="boardFrame">
+          <div class="edge-label north">North</div>
+          <div class="edge-label west">West</div>
+          <div class="board" id="board" aria-label="Game board"></div>
+          <div class="edge-label east">East</div>
+          <div class="edge-label south">South</div>
+        </div>
+        <p class="hint" id="hint"></p>
+        <p class="help">
+          Pick a piece from your hand (or press 1–4) ·
+          <kbd>R</kbd> or right-click to rotate, <kbd>Shift</kbd>+<kbd>R</kbd> to rotate back ·
+          click the board to place · <kbd>Esc</kbd> to drop the piece
+        </p>
+      </section>
+
+      <aside class="sidebar">
+        <div class="players" id="players"></div>
+        <div class="log-panel">
+          <h2>Events</h2>
+          <ol class="log" id="log"></ol>
+        </div>
+      </aside>
+    </main>
+  </div>
 
   <div class="overlay" id="overlay" hidden>
     <div class="overlay-card">

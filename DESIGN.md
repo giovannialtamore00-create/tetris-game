@@ -202,6 +202,16 @@ The player with the **most points** wins, including players who are no longer al
 
 The server is authoritative. Clients send intents; the server validates, applies and broadcasts.
 
+### Rooms and lobby (`server/rooms.js`)
+
+- **Private rooms.** A player enters a nickname (up to 16 characters) and creates a room, which gets a 4-character code (letters and digits, without the look-alikes 0/O and 1/I). Others join with the code or an invite link (`/?room=CODE`).
+- **Seats** are taken in join order: South, West, North, East. The game starts automatically when the fourth player joins; no one can join after that.
+- **Reconnect token.** Joining hands out a secret token, kept in the browser. After a refresh or a dropped connection, the client resumes its seat with the token. Opening the same seat in a second tab moves it there and tells the first tab.
+- **Disconnects.** In the lobby, a disconnected player's seat is held for 20 s, then freed. In a game the seat is held for good: the player shows as offline, and their clocks keep running as normal (§9).
+- **Leaving.** Leaving from the lobby frees the seat. Leaving a game keeps the seat, and its clock keeps running.
+- **Cleanup.** A lobby is removed as soon as it has no players. A game with nobody connected is removed after 10 minutes.
+- The room layer runs each room's one deadline timer (§17) and applies expired deadlines before every action.
+
 ## 14. State
 
 | Part | Fields |
@@ -259,9 +269,13 @@ The room layer keeps **one** `setTimeout` set to `nextDeadline(state)` and reset
 ## 18. Client sync
 
 - One public state is broadcast to every client after each change, together with the events that produced it. At this size, full snapshots are cheaper than diffs.
-- Deadlines are sent as milliseconds remaining. Clients count down locally (game clock, each player's `remaining/cap`, the active player's AFK bar, any shuffle window) and resynchronise on every update.
-- Client → server messages: `join`, `move { handIndex, rotation, x, y }`, `shuffle`.
-- Each client rotates its own view so that its edge is at the bottom. The server works only in absolute board coordinates.
+- The public state is the full game state **minus each player's bag**, whose queue and random-generator state would reveal upcoming pieces. Hands stay visible (§3).
+- Each state message carries the server's current time. Clients work out the offset between their clock and the server's, then count down locally (game clock, each player's `remaining/cap`, the active player's AFK bar, any shuffle window) and resynchronise on every update.
+- Client → server messages: `create { nickname }`, `join { code, nickname }`, `resume { code, token }`, `leave`, `move { handIndex, rotation, x, y }`, `shuffle`.
+- Server → client messages: `joined { code, seat, token }`, `lobby { code, you, seats }`, `state { code, you, seats, state, events, serverNow }`, `error { error }`, `replaced`, `left`. `seats` lists each seat's nickname and whether it is connected.
+- Players can pick up, rotate and preview a piece at any time; the client only sends the move on their live turn.
+- The server works only in absolute board coordinates. (Rotating each client's view so its own edge is at the bottom is planned; the current client shows North at the top.)
+- The same page also offers local hot-seat play, running the core in the browser. Opened straight from disk (`file://`), only hot-seat is available.
 
 ## 19. Code layout and tests
 
@@ -277,6 +291,12 @@ Plain JavaScript (CommonJS), tested with Node's built-in `node:test`; no depende
 | `resolve` | Anchoring and cluster resolution |
 | `ranking` | Final standings and tie-breaks |
 | `game` | `createGame`, `applyMove`, `startTurn`, `shuffle`, `tick`, `nextDeadline` |
+| `server/rooms.js` | Rooms, seats, tokens and the per-room deadline timer (no sockets; clock and timers injected) |
+| `server/app.js` | HTTP server for the client files plus the WebSocket endpoint `/ws` (uses the `ws` package, the only dependency) |
+| `server/index.js` | `npm start`: rebuilds the client bundle and starts the server on port 8080 |
+| `client/` | The browser page: menu, lobby and game, in online or local hot-seat mode |
+
+Room tests drive the room layer with a fake clock and fake connections; one end-to-end test runs the real server with four real sockets.
 
 Tests use hand-built boards and a fake clock. After every step of every test, they assert the invariants from §6: every owned block is anchored, and every grey cluster touches at least 2 colours. Named cases include:
 

@@ -214,6 +214,70 @@ kbd {
 .standings tr.winner td { font-weight: 700; }
 .overlay-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
+/* Screens: menu and lobby */
+.screen[hidden] { display: none; }
+.menu, .lobby {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.menu h1 { margin: 0; font-size: 34px; letter-spacing: 0.04em; }
+.menu-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.menu-card h2 { margin: 0; font-size: 16px; }
+.field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  min-width: 0;
+}
+input:focus { outline: 2px solid hsl(210, 70%, 55%); outline-offset: 0; }
+button.primary { background: hsl(210, 60%, 38%); border-color: hsl(210, 60%, 48%); }
+.join-row { display: flex; gap: 8px; }
+.join-row input { flex: 1; }
+#codeInput { text-transform: uppercase; letter-spacing: 0.2em; font-family: ui-monospace, monospace; }
+.menu-error { margin: 0; min-height: 1.2em; color: #ff8a80; }
+.menu-error:empty { display: none; }
+.menu-note { margin: 0; color: var(--muted); font-size: 12px; }
+.menu-note:empty { display: none; }
+.room-code { font-family: ui-monospace, monospace; letter-spacing: 0.15em; color: hsl(45, 80%, 65%); }
+.lobby-seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.lobby-seats li {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border-left: 4px solid hsl(var(--hue), 60%, 50%);
+}
+.lobby-seats .empty { color: var(--muted); font-style: italic; }
+.lobby-seats .you { font-weight: 600; }
+.lobby-status { margin: 0; color: var(--muted); }
+
+.banner {
+  background: hsl(35, 70%, 30%);
+  color: #fff;
+  text-align: center;
+  padding: 6px 12px;
+}
+.banner[hidden] { display: none; }
+.player-seat { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
+.player-flag { font-size: 11px; color: #ff8a65; margin-left: 4px; }
+
 @media (max-width: 600px) {
   .players { grid-template-columns: 1fr; }
 }
