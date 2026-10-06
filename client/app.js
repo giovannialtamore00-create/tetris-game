@@ -628,7 +628,9 @@
 
   // --- Menu and lobby -----------------------------------------------------------
 
-  const online = location.protocol === 'http:' || location.protocol === 'https:';
+  // Static hosts (GitHub Pages, itch.io) serve the files but run no game server.
+  const staticHost = /.github.io$|.itch.zone$|.hwcdn.net$/.test(location.hostname);
+  const online = (location.protocol === 'http:' || location.protocol === 'https:') && !staticHost;
 
   function showMenu(error = '') {
     if (ctl && ctl.mode === 'online') ctl.close();
@@ -1437,7 +1439,9 @@
   if (!online) {
     $('createBtn').disabled = true;
     $('joinBtn').disabled = true;
-    el.onlineNote.textContent = 'Online play needs the game server: run "npm start" and open the address it prints.';
+    el.onlineNote.textContent = staticHost
+      ? 'Online play is coming soon. For now, play against bots or hot-seat below.'
+      : 'Online play needs the game server: run "npm start" and open the address it prints.';
     showScreen('menu');
   } else {
     const saved = tabStorage.get(SESSION_KEY);
