@@ -62,8 +62,7 @@ class Room {
     this.seats = new Array(SEAT_COUNT).fill(null);
     this.state = null; // set when the game starts
     this.history = []; // board after the start and after every placement (move history)
-    this.mode = TURNS; // chosen by the host in the lobby
-    this.rainbowMode = false; // §25: also chosen by the host in the lobby
+    this.mode = REALTIME; // chosen by the host in the lobby; real-time by default
     this.playerCount = 4; // §26: 4, or 2 (South vs North); chosen by the host
     this.deadlineTimer = null;
     this.cleanupTimer = null;
@@ -168,14 +167,6 @@ class Room {
     });
     if (this.isFull()) this.start();
     else this.broadcastLobby();
-  }
-
-  // Host only, before the game starts: rainbow mode on or off (§25).
-  setRainbow(conn, on) {
-    const error = this.hostCheck(conn);
-    if (error) return this.sendError(conn, error);
-    this.rainbowMode = Boolean(on);
-    this.broadcastLobby();
   }
 
   hostCheck(conn) {
@@ -290,7 +281,7 @@ class Room {
     const config = {
       ...this.manager.gameConfig,
       mode: this.mode,
-      rainbowMode: this.rainbowMode,
+      rainbowMode: true, // §25: rainbow is the only mode
       playerCount: this.playerCount,
     };
     const result = game.createGame({ seed, now: this.manager.now(), config });
@@ -462,10 +453,10 @@ class Room {
   broadcastLobby() {
     const seats = this.seatInfo();
     const host = this.hostSeat;
-    const { mode, rainbowMode, playerCount } = this;
+    const { mode, playerCount } = this;
     const activeSeats = this.activeSeats();
     this.eachConnected((conn, seat) =>
-      conn.send({ type: 'lobby', code: this.code, you: seat, host, mode, rainbowMode, playerCount, activeSeats, seats }),
+      conn.send({ type: 'lobby', code: this.code, you: seat, host, mode, playerCount, activeSeats, seats }),
     );
   }
 
@@ -534,7 +525,6 @@ class RoomManager {
   //   { type: 'addBot' }              (host, lobby only)
   //   { type: 'removeBot', seat }     (host, lobby only)
   //   { type: 'setMode', mode }       (host, lobby only: 'turns' or 'realtime')
-  //   { type: 'setRainbow', on }      (host, lobby only: rainbow mode on/off)
   //   { type: 'setPlayers', count }   (host, lobby only: 2 or 4 players)
   //   { type: 'pause' }               (any player, during a game)
   //   { type: 'unpause' }             (the player who paused, or the host)
@@ -585,10 +575,6 @@ class RoomManager {
       case 'setPlayers':
         if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
         room.setPlayers(conn, Number(msg.count));
-        return;
-      case 'setRainbow':
-        if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
-        room.setRainbow(conn, msg.on);
         return;
       case 'pause':
         if (!room) return conn.send({ type: 'error', error: 'notInRoom' });

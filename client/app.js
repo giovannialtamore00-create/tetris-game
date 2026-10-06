@@ -245,7 +245,7 @@
 
   const HUMAN_SEAT = 0; // against bots you always play South
 
-  function createLocalController({ bots = false, mode = C.TURNS, rainbowMode = false, playerCount = 4 } = {}) {
+  function createLocalController({ bots = false, mode = C.TURNS, playerCount = 4 } = {}) {
     // Against bots you play South and the bots take the other seats in play (§26).
     const botSeats = bots ? C.activeSeatsFor(playerCount).filter((k) => k !== HUMAN_SEAT) : [];
     const vsBots = botSeats.length > 0;
@@ -371,7 +371,7 @@
         time.lastReal = performance.now();
         time.paused = false;
         const seed = Math.floor(Math.random() * 2 ** 31);
-        const result = game.createGame({ seed, now: 0, config: { mode, rainbowMode, playerCount } });
+        const result = game.createGame({ seed, now: 0, config: { mode, rainbowMode: true, playerCount } }); // §25: rainbow is the only mode
         botPlan = null;
         realtimePlans = [];
         resetGameView();
@@ -410,8 +410,7 @@
     let mySeat = null;
     let seats = [null, null, null, null];
     let host = null; // lobby host seat
-    let lobbyMode = C.TURNS;
-    let lobbyRainbow = false;
+    let lobbyMode = C.REALTIME;
     let lobbyPlayers = 4;
     let lobbyActiveSeats = [0, 1, 2, 3];
     let lobbyError = '';
@@ -468,7 +467,6 @@
           mySeat = msg.you;
           host = msg.host;
           lobbyMode = msg.mode;
-          lobbyRainbow = msg.rainbowMode;
           lobbyPlayers = msg.playerCount;
           lobbyActiveSeats = msg.activeSeats;
           lobbyError = '';
@@ -577,12 +575,6 @@
       },
       setPlayers(count) {
         send({ type: 'setPlayers', count });
-      },
-      get lobbyRainbow() {
-        return lobbyRainbow;
-      },
-      setRainbow(on) {
-        send({ type: 'setRainbow', on });
       },
       get lobbyMode() {
         return lobbyMode;
@@ -700,7 +692,6 @@
       el.lobbySeats.appendChild(li);
     });
     renderModeRow();
-    renderRainbowRow();
     renderPlayersRow();
     const missing = ctl.lobbyActiveSeats.filter((k) => !ctl.seats[k]).length;
     $('addBotBtn').hidden = !(ctl.isHost && missing > 0);
@@ -740,38 +731,13 @@
     row.appendChild(help);
   }
 
-  // Rainbow mode (§25): the host switches it on or off; everyone else sees it.
-  function renderRainbowRow() {
-    const row = $('rainbowRow');
-    row.innerHTML = '';
-    row.appendChild(span('label', 'Rainbow mode:'));
-    if (ctl.isHost) {
-      for (const on of [false, true]) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = on ? 'On' : 'Off';
-        if (ctl.lobbyRainbow === on) btn.className = 'on';
-        btn.addEventListener('click', () => ctl.setRainbow(on));
-        row.appendChild(btn);
-      }
-    } else {
-      row.appendChild(span('', `${ctl.lobbyRainbow ? 'On' : 'Off'} (chosen by the host)`));
-    }
-    const help = document.createElement('p');
-    help.className = 'mode-help';
-    help.textContent = ctl.lobbyRainbow
-      ? 'Extra pieces (1×3, 1×2, small L), and each piece has a 5% chance to be a rainbow piece you can place anywhere touching any block.'
-      : 'The classic piece set, no rainbow pieces.';
-    row.appendChild(help);
-  }
-
   // The host picks the mode; everyone else sees the choice.
   function renderModeRow() {
     const row = $('modeRow');
     row.innerHTML = '';
     row.appendChild(span('label', 'Mode:'));
     if (ctl.isHost) {
-      for (const mode of [C.TURNS, C.REALTIME]) {
+      for (const mode of [C.REALTIME, C.TURNS]) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.textContent = MODE_NAMES[mode];
@@ -1273,7 +1239,7 @@
   function describe(e) {
     switch (e.type) {
       case 'note': return e.text;
-      case 'gameStarted': return `${e.mode === 'realtime' ? 'Real-time' : 'Turn-based'} game${e.rainbowMode ? ' in rainbow mode' : ''} started (10:00 on the clock).`;
+      case 'gameStarted': return `${e.mode === 'realtime' ? 'Real-time' : 'Turn-based'} game started (10:00 on the clock).`;
       case 'turnStarted': return `${who(e.seat)}'s turn.`;
       case 'placed': return `${who(e.seat)} placed ${e.rainbow ? 'a rainbow ' : ''}${pieceName(e.piece)} at ${cellName(e.cells[0])}.`;
       case 'lineClearBonus': return `${who(e.seat)} gains +${e.ms / 1000} s for ${e.lines} line clear(s) (up to the cap).`;
@@ -1391,15 +1357,15 @@
   }
 
   $('hotseatBtn').addEventListener('click', () => {
-    ctl = createLocalController({ rainbowMode: $('rainbowLocal').checked, playerCount: localPlayers() });
+    ctl = createLocalController({ playerCount: localPlayers() });
     ctl.start();
   });
   $('vsBotsBtn').addEventListener('click', () => {
-    ctl = createLocalController({ bots: true, rainbowMode: $('rainbowLocal').checked, playerCount: localPlayers() });
+    ctl = createLocalController({ bots: true, playerCount: localPlayers() });
     ctl.start();
   });
   $('vsBotsRealtimeBtn').addEventListener('click', () => {
-    ctl = createLocalController({ bots: true, mode: C.REALTIME, rainbowMode: $('rainbowLocal').checked, playerCount: localPlayers() });
+    ctl = createLocalController({ bots: true, mode: C.REALTIME, playerCount: localPlayers() });
     ctl.start();
   });
   $('addBotBtn').addEventListener('click', () => ctl && ctl.mode === 'online' && ctl.addBot());

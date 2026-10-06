@@ -342,7 +342,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 | AFK timeout | 10 s |
 | Shuffle window | 10 s |
 | Game length | 10 minutes |
-| Game mode | `turns` (default) or `realtime` (`mode`) |
+| Game mode | `realtime` (default for online rooms and bots) or `turns` (`mode`; local hot-seat is always turn-based) |
 | Real-time cooldown | 3 s (`cooldownMs`) |
 
 ---
@@ -396,13 +396,13 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 
 ## 25. Rainbow mode
 
-An **opt-in option** chosen at game start: by the host in the room lobby (on or off), or with the "Rainbow mode" tick box on the menu for local games. It combines with either game mode (turn-based or real-time). **All other rules apply unchanged.**
+**The only mode**: every game (online, bots, hot-seat) is played in rainbow mode, with either game mode (turn-based or real-time). There is no on/off switch. **All other rules apply unchanged.**
 
 **Piece pool.** Rainbow mode uses its own pool (`src/core/pieceSet.js`):
 
 | Pool | Bag (each once per cycle) | Special (shuffles; turn-based line-clear reward) |
 |---|---|---|
-| Classic (rainbow mode off) | the 7 tetrominoes | 1×1, 1×2, small L |
+| Classic (unused; kept in the engine) | the 7 tetrominoes | 1×1, 1×2, small L |
 | Rainbow mode | the 7 tetrominoes + **1×3**, 1×2, small L | **1×1** only |
 
 **Rainbow pieces.** In rainbow mode every dealt piece (from the bag, a shuffle or a reward) has a **5% chance** of being a rainbow piece, rolled with the player's own hidden generator. It is shown with a rainbow outline in the hand.
@@ -414,7 +414,7 @@ An **opt-in option** chosen at game start: by the host in the room lobby (on or 
 - **Invariant.** After every move, every rainbow group touches at least one non-rainbow block.
 - **Bots** play rainbow pieces like any other piece (a random legal placement).
 
-**Implementation.** `rainbowMode` and `rainbowChance` (0.05) in the game config; with rainbow mode off nothing is rolled, so classic games deal exactly as before. Each player has `rainbow[k]` alongside `hand[k]`. Placement events carry `rainbow: true`; rainbow detonations are `detonated` events with `rainbow: true`. The lobby sends `rainbowMode`; the host changes it with `setRainbow { on }`.
+**Implementation.** `rainbowMode` and `rainbowChance` (0.05) in the game config; with rainbow mode off nothing is rolled, so classic games deal exactly as before. Each player has `rainbow[k]` alongside `hand[k]`. Placement events carry `rainbow: true`; rainbow detonations are `detonated` events with `rainbow: true`. The client and the room server always start games with `rainbowMode: true`; the engine's default stays `false`, so the classic pool is still covered by its tests.
 
 ---
 

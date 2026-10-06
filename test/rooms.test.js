@@ -66,11 +66,12 @@ function setup(options = {}) {
   return { env, rooms };
 }
 
-// Creates a room and fills it with four players; returns their connections by seat.
+// Creates a turn-based room and fills it with four players; returns their connections by seat.
 function fullRoom() {
   const { env, rooms } = setup();
   const conns = [fakeConn(), fakeConn(), fakeConn(), fakeConn()];
   rooms.handleMessage(conns[0], { type: 'create', nickname: 'Ann' });
+  rooms.handleMessage(conns[0], { type: 'setMode', mode: 'turns' });
   const code = conns[0].last('joined').code;
   ['Bob', 'Cat', 'Dan'].forEach((nickname, k) => rooms.handleMessage(conns[k + 1], { type: 'join', code, nickname }));
   return { env, rooms, conns, code, room: rooms.rooms.get(code) };
@@ -383,11 +384,11 @@ describe('rooms: game mode', () => {
     return { env, rooms, ann, code, room: rooms.rooms.get(code) };
   }
 
-  it('is turn-based unless the host picks real-time in the lobby', () => {
+  it('is real-time unless the host picks turn-based in the lobby', () => {
     const { rooms, ann } = hostRoom();
-    assert.equal(ann.last('lobby').mode, 'turns');
-    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
     assert.equal(ann.last('lobby').mode, 'realtime');
+    rooms.handleMessage(ann, { type: 'setMode', mode: 'turns' });
+    assert.equal(ann.last('lobby').mode, 'turns');
     rooms.handleMessage(ann, { type: 'setMode', mode: 'chess' });
     assert.equal(ann.last('error').error, 'badMode');
   });
@@ -480,38 +481,23 @@ describe('rooms: two players', () => {
 });
 
 describe('rooms: rainbow mode', () => {
-  it('is off unless the host switches it on, and only the host can', () => {
-    const { rooms } = setup();
-    const ann = fakeConn();
-    const bob = fakeConn();
-    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
-    const code = ann.last('joined').code;
-    assert.equal(ann.last('lobby').rainbowMode, false);
-    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
-    rooms.handleMessage(bob, { type: 'setRainbow', on: true });
-    assert.equal(bob.last('error').error, 'notHost');
-    rooms.handleMessage(ann, { type: 'setRainbow', on: true });
-    assert.equal(bob.last('lobby').rainbowMode, true);
-  });
-
-  it('starts the game in rainbow mode, combinable with real-time', () => {
-    const { rooms } = setup();
-    const ann = fakeConn();
-    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
-    rooms.handleMessage(ann, { type: 'setRainbow', on: true });
-    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
-    for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
-    const { state } = ann.last('state');
-    assert.equal(state.config.rainbowMode, true);
-    assert.equal(state.config.mode, 'realtime');
+  it('is the only mode: every room starts in rainbow mode, real-time or turn-based', () => {
+    for (const mode of ['realtime', 'turns']) {
+      const { rooms } = setup();
+      const ann = fakeConn();
+      rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+      rooms.handleMessage(ann, { type: 'setMode', mode });
+      for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
+      const { state } = ann.last('state');
+      assert.equal(state.config.rainbowMode, true);
+      assert.equal(state.config.mode, mode);
+    }
   });
 
   it('lets bots play a rainbow-mode game on the server', () => {
     const { env, rooms } = setup();
     const ann = fakeConn();
     rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
-    rooms.handleMessage(ann, { type: 'setRainbow', on: true });
-    rooms.handleMessage(ann, { type: 'setMode', mode: 'realtime' });
     for (let k = 0; k < 3; k++) rooms.handleMessage(ann, { type: 'addBot' });
     env.advance(60_000);
     const placed = ann.all('state').flatMap((m) => m.events).filter((e) => e.type === 'placed');

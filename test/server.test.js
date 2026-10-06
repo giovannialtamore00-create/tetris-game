@@ -69,6 +69,7 @@ describe('server', () => {
     const players = [client(), client(), client(), client()];
     await players[0].send({ type: 'create', nickname: 'Ann' });
     const { code } = await players[0].next('joined');
+    await players[0].send({ type: 'setMode', mode: 'turns' });
     for (const [k, nickname] of ['Bob', 'Cat', 'Dan'].entries()) {
       await players[k + 1].send({ type: 'join', code, nickname });
       await players[k + 1].next('joined');
