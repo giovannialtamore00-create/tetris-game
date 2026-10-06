@@ -16,6 +16,11 @@ const NORTH = 2;
 const EAST = 3;
 const SEAT_COUNT = 4;
 
+// §26: which seats are played. A 2-player game uses opposite sides.
+const ACTIVE_SEATS = { 4: [SOUTH, WEST, NORTH, EAST], 2: [SOUTH, NORTH] };
+const activeSeatsFor = (playerCount) => ACTIVE_SEATS[playerCount] || ACTIVE_SEATS[4];
+
+const ABSENT = 'absent'; // §26: a seat nobody sits in (2-player games)
 const ALIVE = 'alive';
 const ELIMINATED = 'eliminated';
 const TIMED_OUT = 'timedOut';
@@ -24,6 +29,7 @@ const TURNS = 'turns';
 const REALTIME = 'realtime';
 
 const DEFAULT_CONFIG = Object.freeze({
+  playerCount: 4, // §26: 4, or 2 (South vs North)
   mode: TURNS, // 'turns' (turn-based) or 'realtime' (§21)
   cooldownMs: 3_000, // real-time mode: wait after a placement without a line clear
   rainbowMode: false, // §25: rainbow mode on or off
@@ -59,6 +65,8 @@ module.exports = {
   NORTH,
   EAST,
   SEAT_COUNT,
+  activeSeatsFor,
+  ABSENT,
   ALIVE,
   ELIMINATED,
   TIMED_OUT,

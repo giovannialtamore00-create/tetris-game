@@ -20,7 +20,7 @@
   const HP_LIGHTNESS = { 3: 34, 2: 48, 1: 64 };
   const GREY_LIGHTNESS = { 3: 34, 2: 48, 1: 62 };
   const PIECE_NAMES = { M: '1×1', D: '1×2', L3: 'small L', I3: '1×3' };
-  const STATUS_TEXT = { alive: 'alive', eliminated: 'eliminated', timedOut: 'timed out' };
+  const STATUS_TEXT = { alive: 'alive', eliminated: 'eliminated', timedOut: 'timed out', absent: 'empty side' };
 
   const $ = (id) => document.getElementById(id);
   const el = {
@@ -245,7 +245,9 @@
 
   const HUMAN_SEAT = 0; // against bots you always play South
 
-  function createLocalController({ botSeats = [], mode = C.TURNS, rainbowMode = false } = {}) {
+  function createLocalController({ bots = false, mode = C.TURNS, rainbowMode = false, playerCount = 4 } = {}) {
+    // Against bots you play South and the bots take the other seats in play (§26).
+    const botSeats = bots ? C.activeSeatsFor(playerCount).filter((k) => k !== HUMAN_SEAT) : [];
     const vsBots = botSeats.length > 0;
     const isBotSeat = (seat) => botSeats.includes(seat);
     let botPlan = null; // turn-based: { turnStartedAt, at }, when the bot to move will play
@@ -359,7 +361,7 @@
       isBotSeat,
       seatLabel(seat) {
         if (!vsBots) return SEATS[seat].name;
-        return seat === HUMAN_SEAT ? 'You' : `Easy bot ${seat}`;
+        return seat === HUMAN_SEAT ? 'You' : `Easy bot ${botSeats.indexOf(seat) + 1}`;
       },
       seatConnected() {
         return true;
@@ -369,7 +371,7 @@
         time.lastReal = performance.now();
         time.paused = false;
         const seed = Math.floor(Math.random() * 2 ** 31);
-        const result = game.createGame({ seed, now: 0, config: { mode, rainbowMode } });
+        const result = game.createGame({ seed, now: 0, config: { mode, rainbowMode, playerCount } });
         botPlan = null;
         realtimePlans = [];
         resetGameView();
@@ -410,6 +412,8 @@
     let host = null; // lobby host seat
     let lobbyMode = C.TURNS;
     let lobbyRainbow = false;
+    let lobbyPlayers = 4;
+    let lobbyActiveSeats = [0, 1, 2, 3];
     let lobbyError = '';
     let session = null; // { code, token }
     let leaving = false;
@@ -465,6 +469,8 @@
           host = msg.host;
           lobbyMode = msg.mode;
           lobbyRainbow = msg.rainbowMode;
+          lobbyPlayers = msg.playerCount;
+          lobbyActiveSeats = msg.activeSeats;
           lobbyError = '';
           showScreen('lobby');
           renderLobby(msg.code);
@@ -563,6 +569,15 @@
         if (!c.paused) send({ type: 'pause' });
         else if (c.canUnpause()) send({ type: 'unpause' });
       },
+      get lobbyPlayers() {
+        return lobbyPlayers;
+      },
+      get lobbyActiveSeats() {
+        return lobbyActiveSeats;
+      },
+      setPlayers(count) {
+        send({ type: 'setPlayers', count });
+      },
       get lobbyRainbow() {
         return lobbyRainbow;
       },
@@ -654,6 +669,7 @@
     el.lobbyLink.value = link;
     el.lobbySeats.innerHTML = '';
     ctl.seats.forEach((info, seat) => {
+      if (!ctl.lobbyActiveSeats.includes(seat)) return;
       const li = document.createElement('li');
       li.style.setProperty('--hue', HUES[seat]);
       const name = document.createElement('span');
@@ -685,7 +701,8 @@
     });
     renderModeRow();
     renderRainbowRow();
-    const missing = ctl.seats.filter((s) => !s).length;
+    renderPlayersRow();
+    const missing = ctl.lobbyActiveSeats.filter((k) => !ctl.seats[k]).length;
     $('addBotBtn').hidden = !(ctl.isHost && missing > 0);
     const hostNote = ctl.isHost ? ' As host, you can fill empty seats with easy bots.' : '';
     el.lobbyStatus.textContent =
@@ -697,6 +714,31 @@
     turns: 'Players take turns, each with a personal clock.',
     realtime: 'No turns: place whenever you like, with a 3 s cooldown after each piece (none after a line clear).',
   };
+
+  // §26: the host picks 2 or 4 players; everyone else sees the choice.
+  function renderPlayersRow() {
+    const row = $('playersRow');
+    row.innerHTML = '';
+    row.appendChild(span('label', 'Players:'));
+    if (ctl.isHost) {
+      for (const count of [4, 2]) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = String(count);
+        if (ctl.lobbyPlayers === count) btn.className = 'on';
+        btn.addEventListener('click', () => ctl.setPlayers(count));
+        row.appendChild(btn);
+      }
+    } else {
+      row.appendChild(span('', `${ctl.lobbyPlayers} (chosen by the host)`));
+    }
+    const help = document.createElement('p');
+    help.className = 'mode-help';
+    help.textContent = ctl.lobbyPlayers === 2
+      ? 'Two players on opposite sides (South vs North); the other two sides stay empty.'
+      : 'Four players, one on each side of the board.';
+    row.appendChild(help);
+  }
 
   // Rainbow mode (§25): the host switches it on or off; everyone else sees it.
   function renderRainbowRow() {
@@ -915,7 +957,9 @@
     const preview = new Set(placement ? placement.cells : []);
     const map = boardOfScreen[view()];
     for (const [side, prop] of [['top', '--edge-top'], ['bottom', '--edge-bottom'], ['left', '--edge-left'], ['right', '--edge-right']]) {
-      el.board.style.setProperty(prop, `hsl(${HUES[seatAt(side)]}, 60%, 50%)`);
+      const edgeSeat = seatAt(side);
+      const empty = ui.state.players[edgeSeat].status === C.ABSENT;
+      el.board.style.setProperty(prop, empty ? 'var(--line)' : `hsl(${HUES[edgeSeat]}, 60%, 50%)`);
     }
     // Looking back shows that history entry; live shows the game. Either way
     // the move that produced the board is highlighted.
@@ -1037,6 +1081,13 @@
       const isMine = controlled === p.seat;
       const card = el.panels[side];
       card.innerHTML = '';
+      if (p.status === C.ABSENT) {
+        card.className = `seat-panel ${side} out empty-side`;
+        card.style.setProperty('--hue', 0);
+        card.appendChild(span('player-seat', `${SEATS[p.seat].name}: empty side`));
+        timerEls[p.seat] = null;
+        continue;
+      }
       card.className = `seat-panel ${side}${side === 'bottom' ? ' mine' : ''}${isActive ? ' active' : ''}${p.status !== C.ALIVE ? ' out' : ''}`;
       card.style.setProperty('--hue', hue);
 
@@ -1326,16 +1377,29 @@
 
   // --- Wiring ---------------------------------------------------------------------
 
+  // Local games: the menu's 2 / 4 players choice (§26) also relabels the buttons.
+  const localPlayers = () => Number(document.querySelector('input[name="localPlayers"]:checked').value);
+  function relabelLocalButtons() {
+    const n = localPlayers();
+    const bots = n === 2 ? '1 easy bot' : '3 easy bots';
+    $('vsBotsBtn').textContent = `Play vs ${bots} — turn-based`;
+    $('vsBotsRealtimeBtn').textContent = `Play vs ${bots} — real-time`;
+    $('hotseatBtn').textContent = `Local hot-seat (${n} players, 1 screen)`;
+  }
+  for (const radio of document.querySelectorAll('input[name="localPlayers"]')) {
+    radio.addEventListener('change', relabelLocalButtons);
+  }
+
   $('hotseatBtn').addEventListener('click', () => {
-    ctl = createLocalController({ rainbowMode: $('rainbowLocal').checked });
+    ctl = createLocalController({ rainbowMode: $('rainbowLocal').checked, playerCount: localPlayers() });
     ctl.start();
   });
   $('vsBotsBtn').addEventListener('click', () => {
-    ctl = createLocalController({ botSeats: [1, 2, 3], rainbowMode: $('rainbowLocal').checked });
+    ctl = createLocalController({ bots: true, rainbowMode: $('rainbowLocal').checked, playerCount: localPlayers() });
     ctl.start();
   });
   $('vsBotsRealtimeBtn').addEventListener('click', () => {
-    ctl = createLocalController({ botSeats: [1, 2, 3], mode: C.REALTIME, rainbowMode: $('rainbowLocal').checked });
+    ctl = createLocalController({ bots: true, mode: C.REALTIME, rainbowMode: $('rainbowLocal').checked, playerCount: localPlayers() });
     ctl.start();
   });
   $('addBotBtn').addEventListener('click', () => ctl && ctl.mode === 'online' && ctl.addBot());

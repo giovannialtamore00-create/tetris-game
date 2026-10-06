@@ -25,6 +25,11 @@
     </div>
     <div class="menu-card">
       <h2>Play on this screen</h2>
+      <div class="mode-row">
+        <span class="label">Players:</span>
+        <label class="toggle"><input type="radio" name="localPlayers" value="4" checked> 4</label>
+        <label class="toggle"><input type="radio" name="localPlayers" value="2"> 2 <span class="menu-note">(South vs North)</span></label>
+      </div>
       <label class="toggle"><input type="checkbox" id="rainbowLocal"> Rainbow mode <span class="menu-note">(new pieces + rainbow pieces)</span></label>
       <button id="vsBotsBtn" type="button">Play vs 3 easy bots — turn-based</button>
       <button id="vsBotsRealtimeBtn" type="button">Play vs 3 easy bots — real-time</button>
@@ -41,6 +46,7 @@
         <input id="lobbyLink" readonly aria-label="Invite link">
         <button id="copyLinkBtn" type="button">Copy</button>
       </div>
+      <div class="mode-row" id="playersRow"></div>
       <div class="mode-row" id="modeRow"></div>
       <div class="mode-row" id="rainbowRow"></div>
       <ol class="lobby-seats" id="lobbySeats"></ol>
@@ -122,7 +128,7 @@
     </div>
     <div class="rules-body">
       <h3>The goal</h3>
-      <p>Four players share one board, one on each side. <b>Most points when the game ends wins</b>, even if you were knocked out along the way. The game ends when the 10-minute clock runs out, or when only one player is left.</p>
+      <p>Four players share one board, one on each side (or two players, South vs North, if the host picks a 2-player game). <b>Most points when the game ends wins</b>, even if you were knocked out along the way. The game ends when the 10-minute clock runs out, or when only one player is left.</p>
 
       <h3>Your tree</h3>
       <p>You start with a little pyramid on your edge: those are your <b>roots</b>. Everything you build must stay connected to a surviving root through your own blocks, like the branches of a tree.</p>

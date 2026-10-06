@@ -12,7 +12,7 @@ This document is the reference for the rules and the server architecture. Part 1
 
 - The board is an **11×11 grid**. Row 0 is the North edge, row 10 the South edge, column 0 the West edge, column 10 the East edge.
 - The **four corner cells are blocked**: they can never be occupied.
-- A game has exactly **4 players**, one on each edge. Turn order is clockwise.
+- A game has **4 players**, one on each edge, or **2 players** on opposite edges (South and North, §26). Turn order is clockwise.
 - A lobby fills up to 4 players and the game starts automatically once it is full. Seats are assigned in join order, starting with South and going clockwise; the first player to move is chosen by the seeded RNG.
 - A player's **edge line** is the row or column along their edge, excluding the corners (9 cells).
 - There is **no gravity**. Blocks never move once placed; they are only ever hit, destroyed, or change owner.
@@ -415,3 +415,14 @@ An **opt-in option** chosen at game start: by the host in the room lobby (on or 
 - **Bots** play rainbow pieces like any other piece (a random legal placement).
 
 **Implementation.** `rainbowMode` and `rainbowChance` (0.05) in the game config; with rainbow mode off nothing is rolled, so classic games deal exactly as before. Each player has `rainbow[k]` alongside `hand[k]`. Placement events carry `rainbow: true`; rainbow detonations are `detonated` events with `rainbow: true`. The lobby sends `rainbowMode`; the host changes it with `setRainbow { on }`.
+
+---
+
+# Part 6 — Two-player games
+
+## 26. Two-player games
+
+- A game can be played by **2 players instead of 4**. They sit on **opposite sides: South and North**. West and East stay **empty**: no pyramid, no hand, no turns, and they are left out of the final ranking. Their seats have status `absent`.
+- **Everything else is unchanged**, and it combines with every option (turn-based or real-time, rainbow mode, bots, pause). Turns alternate South and North, so a round is two turns. The board stays 11×11 and lines still run edge to edge, including across the empty edges.
+- **Choosing.** Online, the host picks **Players: 4 or 2** in the lobby (`setPlayers { count }`); the room fills only the seats in play (South, then North) and the game starts when both are taken, bots included. Switching with players already seated moves them, in order, to the seats in play; switching to 2 with 3 or more seated is refused (`tooManyPlayers`). Locally, the menu's **Players: 4 / 2** choice applies to hot-seat and to games against bots (2 players = you against 1 bot).
+- **Implementation.** `playerCount` (4 or 2) in the game config; `activeSeatsFor(playerCount)` gives the seats in play. The lobby message carries `playerCount` and `activeSeats`.

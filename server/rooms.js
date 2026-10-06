@@ -13,7 +13,7 @@
 const crypto = require('node:crypto');
 const game = require('../src/core/game');
 const bot = require('../src/core/bot');
-const { SEAT_COUNT, ALIVE, TURNS, REALTIME } = require('../src/core/constants');
+const { SEAT_COUNT, ALIVE, TURNS, REALTIME, activeSeatsFor } = require('../src/core/constants');
 
 const BOT_SHUFFLE_DELAY_MS = 600;
 
@@ -64,6 +64,7 @@ class Room {
     this.history = []; // board after the start and after every placement (move history)
     this.mode = TURNS; // chosen by the host in the lobby
     this.rainbowMode = false; // §25: also chosen by the host in the lobby
+    this.playerCount = 4; // §26: 4, or 2 (South vs North); chosen by the host
     this.deadlineTimer = null;
     this.cleanupTimer = null;
     this.botTimer = null;
@@ -92,14 +93,14 @@ class Room {
 
   join(conn, nickname) {
     if (this.started) return this.sendError(conn, 'gameStarted');
-    const seat = this.seats.indexOf(null);
+    const seat = this.freeSeat();
     if (seat === -1) return this.sendError(conn, 'roomFull');
 
     const token = crypto.randomBytes(16).toString('hex');
     this.seats[seat] = { nickname: cleanNickname(nickname), bot: false, token, conn: null, graceTimer: null };
     this.attach(conn, seat);
 
-    if (this.seats.every(Boolean)) this.start();
+    if (this.isFull()) this.start();
     else this.broadcastLobby();
   }
 
@@ -107,13 +108,13 @@ class Room {
   addBot(conn) {
     const error = this.hostCheck(conn);
     if (error) return this.sendError(conn, error);
-    const seat = this.seats.indexOf(null);
+    const seat = this.freeSeat();
     if (seat === -1) return this.sendError(conn, 'roomFull');
     const taken = new Set(this.seats.filter((s) => s && s.bot).map((s) => s.nickname));
     let n = 1;
     while (taken.has(`Easy bot ${n}`)) n++;
     this.seats[seat] = { nickname: `Easy bot ${n}`, bot: true, token: null, conn: null, graceTimer: null };
-    if (this.seats.every(Boolean)) this.start();
+    if (this.isFull()) this.start();
     else this.broadcastLobby();
   }
 
@@ -133,6 +134,40 @@ class Room {
     if (mode !== TURNS && mode !== REALTIME) return this.sendError(conn, 'badMode');
     this.mode = mode;
     this.broadcastLobby();
+  }
+
+  // §26: the seats in play, the first free one (or -1), and whether all are taken.
+  activeSeats() {
+    return activeSeatsFor(this.playerCount);
+  }
+
+  freeSeat() {
+    const seat = this.activeSeats().find((k) => !this.seats[k]);
+    return seat === undefined ? -1 : seat;
+  }
+
+  isFull() {
+    return this.activeSeats().every((k) => this.seats[k]);
+  }
+
+  // Host only, before the game starts: a 2- or 4-player game. Everyone already
+  // seated keeps their order and moves to the seats in play (2 players: South
+  // and North). The game starts at once if that fills them.
+  setPlayers(conn, count) {
+    const error = this.hostCheck(conn);
+    if (error) return this.sendError(conn, error);
+    if (count !== 2 && count !== 4) return this.sendError(conn, 'badPlayerCount');
+    const seated = this.seats.filter(Boolean);
+    if (seated.length > count) return this.sendError(conn, 'tooManyPlayers');
+    this.playerCount = count;
+    this.seats = new Array(SEAT_COUNT).fill(null);
+    seated.forEach((entry, k) => {
+      const seat = this.activeSeats()[k];
+      this.seats[seat] = entry;
+      if (entry.conn) entry.conn.session = { room: this, seat };
+    });
+    if (this.isFull()) this.start();
+    else this.broadcastLobby();
   }
 
   // Host only, before the game starts: rainbow mode on or off (§25).
@@ -211,8 +246,9 @@ class Room {
       this.broadcastState([]);
     } else {
       entry.graceTimer = this.manager.setTimer(() => {
-        if (this.seats[seat] === entry && !entry.conn) {
-          this.seats[seat] = null;
+        const k = this.seats.indexOf(entry);
+        if (k !== -1 && !entry.conn) {
+          this.seats[k] = null;
           this.broadcastLobby();
           this.checkEmpty();
         }
@@ -251,7 +287,12 @@ class Room {
 
   start() {
     const seed = Math.floor(this.manager.random() * 2 ** 31);
-    const config = { ...this.manager.gameConfig, mode: this.mode, rainbowMode: this.rainbowMode };
+    const config = {
+      ...this.manager.gameConfig,
+      mode: this.mode,
+      rainbowMode: this.rainbowMode,
+      playerCount: this.playerCount,
+    };
     const result = game.createGame({ seed, now: this.manager.now(), config });
     this.state = result.state;
     this.broadcastState(result.events);
@@ -421,9 +462,10 @@ class Room {
   broadcastLobby() {
     const seats = this.seatInfo();
     const host = this.hostSeat;
-    const { mode, rainbowMode } = this;
+    const { mode, rainbowMode, playerCount } = this;
+    const activeSeats = this.activeSeats();
     this.eachConnected((conn, seat) =>
-      conn.send({ type: 'lobby', code: this.code, you: seat, host, mode, rainbowMode, seats }),
+      conn.send({ type: 'lobby', code: this.code, you: seat, host, mode, rainbowMode, playerCount, activeSeats, seats }),
     );
   }
 
@@ -493,6 +535,7 @@ class RoomManager {
   //   { type: 'removeBot', seat }     (host, lobby only)
   //   { type: 'setMode', mode }       (host, lobby only: 'turns' or 'realtime')
   //   { type: 'setRainbow', on }      (host, lobby only: rainbow mode on/off)
+  //   { type: 'setPlayers', count }   (host, lobby only: 2 or 4 players)
   //   { type: 'pause' }               (any player, during a game)
   //   { type: 'unpause' }             (the player who paused, or the host)
   handleMessage(conn, msg) {
@@ -538,6 +581,10 @@ class RoomManager {
       case 'setMode':
         if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
         room.setMode(conn, msg.mode);
+        return;
+      case 'setPlayers':
+        if (!room) return conn.send({ type: 'error', error: 'notInRoom' });
+        room.setPlayers(conn, Number(msg.count));
         return;
       case 'setRainbow':
         if (!room) return conn.send({ type: 'error', error: 'notInRoom' });

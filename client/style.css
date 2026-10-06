@@ -383,3 +383,6 @@ button.primary { background: hsl(210, 60%, 38%); border-color: hsl(210, 60%, 48%
 .banner[hidden] { display: none; }
 .player-seat { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
 .player-flag { font-size: 11px; color: #ff8a65; margin-left: 4px; }
+
+/* §26: a side nobody sits on in a 2-player game */
+.seat-panel.empty-side { text-align: center; padding: 10px; }

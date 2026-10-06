@@ -1,6 +1,6 @@
 'use strict';
 
-const { ALIVE } = require('./constants');
+const { ALIVE, ABSENT } = require('./constants');
 const { countBlocks } = require('./board');
 
 // §12: most points wins. Ties are broken by (1) living beats not living, then
@@ -8,7 +8,7 @@ const { countBlocks } = require('./board');
 // blocks (timed out) or none (eliminated), so step 2 is the same count for both
 // groups. Players still level share a rank; several players at rank 1 is a draw.
 function rankPlayers(players, owner) {
-  const rows = players.map((p) => ({
+  const rows = players.filter((p) => p.status !== ABSENT).map((p) => ({
     seat: p.seat,
     score: p.score,
     status: p.status,

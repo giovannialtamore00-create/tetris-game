@@ -2,6 +2,8 @@
 
 const {
   SEAT_COUNT,
+  activeSeatsFor,
+  ABSENT,
   EMPTY,
   ALIVE,
   ELIMINATED,
@@ -36,20 +38,22 @@ const clone = (state) => structuredClone(state);
 
 function createGame({ seed = 1, now = 0, config = {} } = {}) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
-  const { owner, hp, root } = createStartingBoard();
+  const seats = activeSeatsFor(cfg.playerCount); // §26: all four, or South and North
+  const { owner, hp, root } = createStartingBoard(seats);
 
   const players = [];
   for (let seat = 0; seat < SEAT_COUNT; seat++) {
+    const inGame = seats.includes(seat);
     const bag = createBag(deriveSeed(seed, seat + 1), poolName(cfg));
     const hand = [];
     const rainbow = [];
-    for (let k = 0; k < cfg.handSize; k++) {
+    for (let k = 0; inGame && k < cfg.handSize; k++) {
       hand.push(drawPiece(bag));
       rainbow.push(rollRainbow(bag, rainbowChance(cfg)));
     }
     players.push({
       seat,
-      status: ALIVE,
+      status: inGame ? ALIVE : ABSENT, // an absent seat never plays, scores or ranks
       score: 0,
       hand,
       rainbow, // rainbow[k]: whether hand piece k is a rainbow piece (§25)
@@ -91,7 +95,7 @@ function createGame({ seed = 1, now = 0, config = {} } = {}) {
     refreshOffers(s, now, events);
     return ok(s, events);
   }
-  const firstSeat = nextInt(createRng(deriveSeed(seed, 0)), SEAT_COUNT);
+  const firstSeat = seats[nextInt(createRng(deriveSeed(seed, 0)), seats.length)];
   queueTurn(s, firstSeat, now, events);
   return ok(s, events);
 }
@@ -508,7 +512,7 @@ function tick(state, now) {
 function pause(state, seat, now) {
   const blocker = actionBlocker(state, now);
   if (blocker) return fail(blocker);
-  if (!state.players[seat]) return fail('notInGame');
+  if (!state.players[seat] || state.players[seat].status === ABSENT) return fail('notInGame');
   const s = clone(state);
   s.pausedAt = now;
   s.pausedBy = seat;

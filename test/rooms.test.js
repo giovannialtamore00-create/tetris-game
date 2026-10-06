@@ -424,6 +424,61 @@ describe('rooms: game mode', () => {
   });
 });
 
+describe('rooms: two players', () => {
+  function hostRoom() {
+    const { env, rooms } = setup();
+    const ann = fakeConn();
+    rooms.handleMessage(ann, { type: 'create', nickname: 'Ann' });
+    const code = ann.last('joined').code;
+    return { env, rooms, ann, code, room: rooms.rooms.get(code) };
+  }
+
+  it('is a 4-player room unless the host picks 2, and only the host can', () => {
+    const { rooms, ann, code } = hostRoom();
+    assert.equal(ann.last('lobby').playerCount, 4);
+    assert.deepEqual(ann.last('lobby').activeSeats, [0, 1, 2, 3]);
+    rooms.handleMessage(ann, { type: 'setPlayers', count: 3 });
+    assert.equal(ann.last('error').error, 'badPlayerCount');
+    rooms.handleMessage(ann, { type: 'setPlayers', count: 2 });
+    assert.deepEqual(ann.last('lobby').activeSeats, [SOUTH, NORTH]);
+    const bob = fakeConn();
+    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' });
+    assert.equal(bob.last('joined').seat, NORTH);
+  });
+
+  it('starts once both seats are taken, and turns away a third player', () => {
+    const { rooms, ann, code } = hostRoom();
+    rooms.handleMessage(ann, { type: 'setPlayers', count: 2 });
+    rooms.handleMessage(ann, { type: 'addBot' });
+    const { state } = ann.last('state');
+    assert.equal(state.config.playerCount, 2);
+    assert.deepEqual(state.players.map((p) => p.status), ['alive', 'absent', 'alive', 'absent']);
+    const cat = fakeConn();
+    rooms.handleMessage(cat, { type: 'join', code, nickname: 'Cat' });
+    assert.equal(cat.last('error').error, 'gameStarted');
+  });
+
+  it('moves seated players to South and North when switching to 2', () => {
+    const { rooms, ann, code, room } = hostRoom();
+    rooms.handleMessage(ann, { type: 'addBot' }); // West
+    rooms.handleMessage(ann, { type: 'removeBot', seat: 1 });
+    const bob = fakeConn();
+    rooms.handleMessage(bob, { type: 'join', code, nickname: 'Bob' }); // West
+    assert.equal(bob.last('joined').seat, WEST);
+    rooms.handleMessage(ann, { type: 'setPlayers', count: 2 }); // fills both seats: the game starts
+    assert.equal(room.seats[NORTH].nickname, 'Bob');
+    assert.equal(bob.last('state').you, NORTH);
+    assert.equal(bob.session.seat, NORTH);
+  });
+
+  it('refuses to switch to 2 players with 3 already seated', () => {
+    const { rooms, ann, code } = hostRoom();
+    for (const nickname of ['Bob', 'Cat']) rooms.handleMessage(fakeConn(), { type: 'join', code, nickname });
+    rooms.handleMessage(ann, { type: 'setPlayers', count: 2 });
+    assert.equal(ann.last('error').error, 'tooManyPlayers');
+  });
+});
+
 describe('rooms: rainbow mode', () => {
   it('is off unless the host switches it on, and only the host can', () => {
     const { rooms } = setup();

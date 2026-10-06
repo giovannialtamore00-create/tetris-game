@@ -65,9 +65,10 @@ function createEmptyBoard() {
   return { owner, hp, root };
 }
 
-function createStartingBoard() {
+// Pyramids for the seats in play (all four, or South and North in a 2-player game, §26).
+function createStartingBoard(seats = [0, 1, 2, 3]) {
   const board = createEmptyBoard();
-  for (let seat = 0; seat < SEAT_COUNT; seat++) {
+  for (const seat of seats) {
     for (const [depth, from, to, hp] of PYRAMID) {
       for (let lateral = from; lateral <= to; lateral++) {
         const i = seatCell(seat, depth, lateral);
