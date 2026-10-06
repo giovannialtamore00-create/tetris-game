@@ -10,7 +10,6 @@
 // room and seat on `conn.session`. Time, timers and randomness are injected so
 // tests can drive them.
 
-const crypto = require('node:crypto');
 const game = require('../src/core/game');
 const bot = require('../src/core/bot');
 const { SEAT_COUNT, ALIVE, TURNS, REALTIME, activeSeatsFor } = require('../src/core/constants');
@@ -95,7 +94,8 @@ class Room {
     const seat = this.freeSeat();
     if (seat === -1) return this.sendError(conn, 'roomFull');
 
-    const token = crypto.randomBytes(16).toString('hex');
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
     this.seats[seat] = { nickname: cleanNickname(nickname), bot: false, token, conn: null, graceTimer: null };
     this.attach(conn, seat);
 
@@ -491,8 +491,9 @@ class RoomManager {
     gameConfig = {}, // overrides for the core's DEFAULT_CONFIG in every new game
   } = {}) {
     this.gameConfig = gameConfig;
-    this.now = now;
-    this.setTimer = setTimer;
+    // Wrapped: browsers throw "Illegal invocation" when setTimeout/Date.now run as methods.
+    this.now = () => now();
+    this.setTimer = (fn, ms) => setTimer(fn, ms);
     this.clearTimer = (handle) => {
       if (handle !== null && handle !== undefined) clearTimer(handle);
     };
@@ -599,4 +600,41 @@ class RoomManager {
   }
 }
 
-module.exports = { RoomManager, publicState, cleanNickname, historyEntry };
+const MAX_MESSAGE_CHARS = 4096;
+
+// Online play is peer-to-peer: the room creator's browser runs a RoomManager
+// and each player reaches it through a text channel (a PeerJS data connection,
+// or an in-page link for the creator). Wraps a channel with `send(text)` and
+// `close()` as a room connection; call receive(text) for each incoming message
+// and closed() when the channel closes.
+function channelConn(manager, channel, log = console) {
+  const conn = {
+    session: null,
+    send: (message) => channel.send(JSON.stringify(message)),
+    close: () => channel.close(),
+  };
+  return {
+    conn,
+    receive(text) {
+      let msg = null;
+      try {
+        if (typeof text === 'string' && text.length <= MAX_MESSAGE_CHARS) msg = JSON.parse(text);
+      } catch {}
+      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') {
+        conn.send({ type: 'error', error: 'badMessage' });
+        return;
+      }
+      try {
+        manager.handleMessage(conn, msg);
+      } catch (err) {
+        log.error('Error handling message', msg.type, err);
+        conn.send({ type: 'error', error: 'serverError' });
+      }
+    },
+    closed() {
+      manager.handleDisconnect(conn);
+    },
+  };
+}
+
+module.exports = { RoomManager, publicState, cleanNickname, historyEntry, channelConn };

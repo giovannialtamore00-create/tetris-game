@@ -202,9 +202,9 @@ The player with the **most points** wins, including players who are no longer al
 |---|---|
 | **Game core** | All rules. Pure and deterministic: no I/O, no timers, never reads the system clock. The current time `now` is always passed in. |
 | **Room layer** | One game per room: the lobby (waits until 4 players have joined, then starts the game), seats, player connections, reconnection tokens, and a single wake-up timer. |
-| **Transport** | WebSockets. itch.io only serves static files, so the Node server is hosted separately and must be reachable over `wss://`. |
+| **Transport** | Peer-to-peer with PeerJS (WebRTC data channels; free public signaling server). The room creator's browser runs the room layer (`server/rooms.js`, bundled into the client) under the PeerJS id `tetra-<CODE>`; other players connect to it directly. No game server is needed, so GitHub Pages and itch.io work. The creator's tab is the host: if it closes, the room ends. The old WebSocket server (`npm start`) still exists but the client no longer uses it. |
 
-The server is authoritative. Clients send intents; the server validates, applies and broadcasts.
+The host (the creator's tab, the "server" in this document) is authoritative. Clients send intents; the host validates, applies and broadcasts.
 
 ### Rooms and lobby (`server/rooms.js`)
 
@@ -214,6 +214,7 @@ The server is authoritative. Clients send intents; the server validates, applies
 - **Disconnects.** In the lobby, a disconnected player's seat is held for 20 s, then freed. In a game the seat is held for good: the player shows as offline, and their clocks keep running as normal (§9).
 - **Leaving.** Leaving from the lobby frees the seat. Leaving a game keeps the seat, and its clock keeps running.
 - **Cleanup.** A lobby is removed as soon as it has no players. A game with nobody connected is removed after 10 minutes.
+- **Host tab.** The room lives in its creator's browser tab. If that tab closes or reloads, the room ends and the other players are sent back to the menu ("The room has closed").
 - The room layer runs each room's one deadline timer (§17) and applies expired deadlines before every action.
 
 ### Easy bots (`src/core/bot.js`)
@@ -306,8 +307,8 @@ Plain JavaScript (CommonJS), tested with Node's built-in `node:test`; no depende
 | `resolve` | Anchoring and cluster resolution |
 | `ranking` | Final standings and tie-breaks |
 | `game` | `createGame`, `applyMove`, `startTurn`, `shuffle`, `tick`, `nextDeadline` |
-| `server/rooms.js` | Rooms, seats, tokens and the per-room deadline timer (no sockets; clock and timers injected) |
-| `server/app.js` | HTTP server for the client files plus the WebSocket endpoint `/ws` (uses the `ws` package, the only dependency) |
+| `server/rooms.js` | Rooms, seats, tokens and the per-room deadline timer (no sockets; clock and timers injected). Runs in the host's browser; `channelConn` wraps a text channel (PeerJS or in-page) as a connection |
+| `server/app.js` | HTTP server for the client files plus the legacy WebSocket endpoint `/ws` (unused by the client since M15) |
 | `server/index.js` | `npm start`: rebuilds the client bundle and starts the server on port 8080 |
 | `client/` | The browser page: menu, lobby and game, in online or local hot-seat mode |
 

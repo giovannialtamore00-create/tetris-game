@@ -3,8 +3,9 @@
 // Browser client. Two modes share all of the rendering below:
 //   - local hot-seat: the game core runs in this tab and all four seats play
 //     here, taking turns on one screen;
-//   - online: the server runs the core; this tab controls one seat, sends its
-//     moves over a WebSocket and draws the state the server broadcasts.
+//   - online: the room creator's tab runs the room (server/rooms.js, bundled
+//     as TetrisCore.rooms); every tab controls one seat, sends its moves to
+//     the creator's tab over PeerJS (WebRTC) and draws the state it broadcasts.
 // A "controller" object hides the difference from the rendering code.
 
 (function () {
@@ -403,10 +404,14 @@
   const NICKNAME_KEY = 'tetris.nickname';
   const RECONNECT_DELAY_MS = 1500;
   const MAX_RECONNECTS = 10;
+  const PEER_PREFIX = 'tetra-'; // the host's PeerJS id is PEER_PREFIX + room code
+  const MAX_CODE_RETRIES = 5; // the PeerJS id was taken: pick another room code
+  const CONNECT_TIMEOUT_MS = 15_000;
 
   function createOnlineController() {
-    let socket = null;
-    let offset = 0; // server clock minus local clock
+    // The current connection to the room: { send(message), close() }, or null.
+    let link = null;
+    let offset = 0; // host clock minus local clock
     let mySeat = null;
     let seats = [null, null, null, null];
     let host = null; // lobby host seat
@@ -420,36 +425,120 @@
     let inGame = false;
 
     function send(message) {
-      if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+      if (link) link.send(message);
     }
 
-    function connect(firstMessage) {
-      leaving = false;
-      const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-      socket = new WebSocket(url);
-      socket.addEventListener('open', () => send(firstMessage));
-      socket.addEventListener('message', (e) => {
-        let msg;
-        try {
-          msg = JSON.parse(e.data);
-        } catch {
+    // Creates a room run by this tab, reachable by others as PEER_PREFIX + code.
+    function hostRoom(nickname, attempt = 0) {
+      const { RoomManager, channelConn } = window.TetrisCore.rooms;
+      const manager = new RoomManager();
+      const room = manager.createRoom();
+      const peer = new Peer(PEER_PREFIX + room.code);
+      // This tab's own player talks to the room in-page, like any other player.
+      const self = channelConn(manager, {
+        send: (text) => queueMicrotask(() => handle(JSON.parse(text))),
+        close() {},
+      });
+      const l = {
+        send: (message) => self.receive(JSON.stringify(message)),
+        close() {
+          manager.closeAll();
+          peer.destroy();
+        },
+      };
+      link = l;
+      // Closing this tab ends the room: tell the guests right away.
+      window.addEventListener('pagehide', () => {
+        if (link === l) c.close();
+      });
+      peer.on('open', () => l.send({ type: 'join', code: room.code, nickname }));
+      peer.on('connection', (dc) => {
+        const guest = channelConn(manager, {
+          send: (text) => dc.open && dc.send(text),
+          close: () => dc.close(),
+        });
+        dc.on('data', (text) => guest.receive(text));
+        dc.on('close', () => guest.closed());
+      });
+      // Lost the PeerJS server (not the players): reconnect so new guests can still find us.
+      peer.on('disconnected', () => {
+        if (link === l && !peer.destroyed) peer.reconnect();
+      });
+      peer.on('error', (err) => {
+        if (link !== l || session) return; // once the room is open, guests' errors don't matter
+        if (err.type === 'unavailable-id' && attempt < MAX_CODE_RETRIES) {
+          link = null;
+          l.close();
+          hostRoom(nickname, attempt + 1);
           return;
         }
-        handle(msg);
+        lost(l, 'Could not reach the online service. Check your internet connection.');
       });
-      socket.addEventListener('close', () => {
-        socket = null;
-        if (leaving) return;
-        if (session && reconnects < MAX_RECONNECTS) {
-          reconnects++;
-          setBanner('Connection lost — reconnecting…');
-          setTimeout(() => {
-            if (!leaving && session) connect({ type: 'resume', ...session });
-          }, RECONNECT_DELAY_MS);
-        } else {
-          showMenu(session ? 'Lost connection to the server.' : 'Could not reach the server.');
-        }
+    }
+
+    // Connects to the tab that runs room `code`.
+    function connectToHost(code, firstMessage) {
+      const peer = new Peer();
+      let dc = null;
+      const l = {
+        send(message) {
+          if (dc && dc.open) dc.send(JSON.stringify(message));
+        },
+        close: () => peer.destroy(),
+      };
+      link = l;
+      const timer = setTimeout(
+        () => lost(l, session ? null : 'Could not connect to the host. Some networks block direct connections.'),
+        CONNECT_TIMEOUT_MS,
+      );
+      peer.on('open', () => {
+        dc = peer.connect(PEER_PREFIX + code, { reliable: true });
+        dc.on('open', () => {
+          clearTimeout(timer);
+          // A host tab that vanishes may not close the channel for a long
+          // time; the connection state notices sooner.
+          dc.peerConnection.addEventListener('iceconnectionstatechange', () => {
+            if (['disconnected', 'failed', 'closed'].includes(dc.peerConnection.iceConnectionState)) lost(l);
+          });
+          l.send(firstMessage);
+        });
+        dc.on('data', (text) => {
+          let msg;
+          try {
+            msg = JSON.parse(text);
+          } catch {
+            return;
+          }
+          handle(msg);
+        });
+        dc.on('close', () => lost(l));
       });
+      peer.on('error', (err) => {
+        clearTimeout(timer);
+        if (err.type !== 'peer-unavailable') return lost(l);
+        // Nobody is hosting this code (any more).
+        const text = session ? 'The room has closed: its host left or went offline.' : 'Room not found, or its host is offline.';
+        tabStorage.set(SESSION_KEY, null);
+        session = null;
+        lost(l, text);
+      });
+    }
+
+    // The connection `l` ended. Without a final error text, try to get our seat back.
+    function lost(l, finalError = null) {
+      if (link !== l) return;
+      link = null;
+      l.close();
+      if (leaving) return;
+      if (!finalError && session && reconnects < MAX_RECONNECTS) {
+        reconnects++;
+        setBanner('Connection lost — reconnecting…');
+        setTimeout(() => {
+          if (!leaving && session && !link) connectToHost(session.code, { type: 'resume', ...session });
+        }, RECONNECT_DELAY_MS);
+        return;
+      }
+      showMenu(finalError || (session ? 'Lost connection to the host.' : 'Could not reach the host.'));
     }
 
     function handle(msg) {
@@ -592,14 +681,15 @@
         return seats;
       },
       create(nickname) {
-        connect({ type: 'create', nickname });
+        hostRoom(nickname);
       },
       join(code, nickname) {
-        connect({ type: 'join', code, nickname });
+        code = String(code).trim().toUpperCase();
+        connectToHost(code, { type: 'join', code, nickname });
       },
       resume(saved) {
         session = saved;
-        connect({ type: 'resume', ...saved });
+        connectToHost(saved.code, { type: 'resume', ...saved });
       },
       frame() {},
       move(move) {
@@ -619,8 +709,9 @@
       },
       close() {
         leaving = true;
-        if (socket) socket.close();
-        socket = null;
+        const l = link;
+        link = null;
+        if (l) l.close();
       },
     };
     return c;
@@ -628,9 +719,9 @@
 
   // --- Menu and lobby -----------------------------------------------------------
 
-  // Static hosts (GitHub Pages, itch.io) serve the files but run no game server.
-  const staticHost = /.github.io$|.itch.zone$|.hwcdn.net$/.test(location.hostname);
-  const online = (location.protocol === 'http:' || location.protocol === 'https:') && !staticHost;
+  // Online play needs a web address (not file://) and the PeerJS library from the CDN.
+  const webPage = location.protocol === 'http:' || location.protocol === 'https:';
+  const online = webPage && typeof Peer === 'function';
 
   function showMenu(error = '') {
     if (ctl && ctl.mode === 'online') ctl.close();
@@ -1439,9 +1530,9 @@
   if (!online) {
     $('createBtn').disabled = true;
     $('joinBtn').disabled = true;
-    el.onlineNote.textContent = staticHost
-      ? 'Online play is coming soon. For now, play against bots or hot-seat below.'
-      : 'Online play needs the game server: run "npm start" and open the address it prints.';
+    el.onlineNote.textContent = webPage
+      ? 'Online play could not load. Check your internet connection and reload.'
+      : 'Online play needs the game opened from a web address, such as the GitHub Pages link.';
     showScreen('menu');
   } else {
     const saved = tabStorage.get(SESSION_KEY);

@@ -4,7 +4,7 @@ Block-placing game for 2–4 players on one 11×11 board. Rainbow pieces are alw
 
 ## Commands
 - `npm test`: all tests (node --test)
-- `npm start`: local game server with online rooms (WebSocket, port 8080)
+- `npm start`: rebuilds the bundle and serves the game at http://localhost:8080 (online play works from there too)
 - `npm run client`: rebuild `client/core.bundle.js` from `src/core` (generated, not in git)
 
 ## Docs
@@ -12,11 +12,11 @@ Block-placing game for 2–4 players on one 11×11 board. Rainbow pieces are alw
 
 ## Hosting
 - Live: https://giovannialtamore00-create.github.io/tetris-game/ (GitHub Pages; `.github/workflows/pages.yml` tests, builds and deploys on every push to master).
-- On github.io / itch.io the online buttons are disabled ("coming soon"), see `staticHost` in `client/app.js`.
+- Online play is peer-to-peer (PeerJS from cdnjs), so it works on any static host; no game server needed.
 - Games hub (claude.ai artifact): https://claude.ai/artifact/4EXrfxbyTmsukjur2szCo6. Update the TETRA card when links change.
 
 ## Status
-- Done: M13 rainbow-only + real-time default; M14 GitHub repo + Pages deploy, renamed to TETRA.
-- Next (step 3, plan first and wait for approval): peer-to-peer online play. The room creator's browser runs the room logic (`server/rooms.js` only needs `node:crypto` + `src/core`), and guests connect with PeerJS (WebRTC, free signaling) instead of the WebSocket. Done when: two people on different devices finish a game through the GitHub Pages link.
-- After that: upload a zip of `client/` (with the built bundle) to itch.io as an HTML game, and add the itch.io link to the hub card.
+- Done: M13 rainbow-only + real-time default; M14 GitHub repo + Pages deploy, renamed to TETRA; M15 peer-to-peer online play (PeerJS; the creator's tab runs `server/rooms.js`, see DESIGN.md §13). Tested with two headless browsers; waiting on the user's two-device playtest on the live link.
+- Open questions: remove the unused WebSocket server and `ws`? Add a TURN relay if some networks can't connect (STUN only now)?
+- Next: upload a zip of `client/` (with the built bundle) to itch.io as an HTML game, and add the itch.io link to the hub card.
 - Later / optional: move the games hub to GitHub Pages (links in claude.ai artifacts are blocked by ad blockers).
