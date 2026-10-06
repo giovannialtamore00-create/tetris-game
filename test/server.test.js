@@ -54,7 +54,7 @@ describe('server', () => {
     const page = await fetch(`http://${base}/`);
     assert.equal(page.status, 200);
     assert.match(page.headers.get('content-type'), /text\/html/);
-    assert.match(await page.text(), /<title>Tetris<\/title>/);
+    assert.match(await page.text(), /<title>TETRA<\/title>/);
     const script = await fetch(`http://${base}/app.js`);
     assert.equal(script.status, 200);
     assert.match(script.headers.get('content-type'), /javascript/);
