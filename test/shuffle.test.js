@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { SOUTH, WEST, NORTH, EAST, TIMED_OUT } = require('../src/core/constants');
 const game = require('../src/core/game');
 const { SPECIAL_PIECES, drawSpecialPiece } = require('../src/core/pieces');
+const { hasLegalMove } = require('../src/core/board');
 const {
   buildState,
   fullBoardRows,
@@ -149,5 +150,48 @@ describe('stuck table', () => {
     assert.deepEqual(scores(after), [4, 4, 4, 4]);
     assert.equal(after.round, 5);
     assert.equal(after.shuffleWindowEndsAt, 40_000);
+  });
+});
+
+describe('shuffle when boxed in (rainbow mode)', () => {
+  // A full board with a 2-cell hole in North's area: South borders no empty cell.
+  function boxedIn(seed) {
+    const rows = fullBoardRows();
+    rows[2] = rows[2].slice(0, 4) + '..' + rows[2].slice(6);
+    return buildState({
+      rows,
+      seed,
+      hands: { [SOUTH]: O_HAND },
+      players: { [SOUTH]: { shuffleAvailable: true } },
+      config: { rainbowMode: true },
+    });
+  }
+
+  it('grants two rainbow pieces, one a 1x1 or 1x2, and a legal move', () => {
+    const smalls = new Set();
+    for (let seed = 1; seed <= 20; seed++) {
+      const state = boxedIn(seed);
+      assert.equal(hasLegalMove(state.owner, SOUTH, state.players[SOUTH].hand, state.players[SOUTH].rainbow), false);
+      const result = game.shuffle(state, SOUTH, 0);
+      assert.equal(result.ok, true, result.error);
+      const p = result.state.players[SOUTH];
+      assert.equal(p.rainbow[0], true);
+      assert.equal(p.rainbow[3], true);
+      assert.ok(['M', 'D'].includes(p.hand[3]), `got ${p.hand[3]}`);
+      assert.equal(hasLegalMove(result.state.owner, SOUTH, p.hand, p.rainbow), true);
+      smalls.add(p.hand[3]);
+    }
+    assert.deepEqual([...smalls].sort(), ['D', 'M']);
+  });
+
+  it('deals normally when a legal move exists', () => {
+    const state = buildState({
+      hands: { [SOUTH]: O_HAND },
+      players: { [SOUTH]: { shuffleAvailable: true } },
+      config: { rainbowMode: true },
+    });
+    const p = game.shuffle(state, SOUTH, 0).state.players[SOUTH];
+    assert.deepEqual(p.rainbow, [false, false, false, false]);
+    assert.equal(p.hand[3], 'M');
   });
 });

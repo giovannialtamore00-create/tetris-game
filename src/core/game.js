@@ -457,6 +457,7 @@ function shuffle(state, seat, now) {
   const s = clone(state);
   const events = [];
   const p = s.players[seat];
+  const stuck = s.config.rainbowMode && !hasLegalMove(s.owner, seat, p.hand, p.rainbow);
   // A shuffled hand is bag draws plus one special piece in the last slot (§8);
   // each piece may be a rainbow piece (§25).
   const last = s.config.handSize - 1;
@@ -464,6 +465,13 @@ function shuffle(state, seat, now) {
   p.rainbow = [];
   for (let k = 0; k < last; k++) deal(s, p, k, drawPiece(p.bag));
   deal(s, p, last, drawSpecialPiece(p.bag));
+  if (stuck) {
+    // §25: shuffling with no legal move grants two rainbow pieces, the special
+    // one a 1×1 or a 1×2, so a boxed-in player can play off any block.
+    p.hand[last] = ['M', 'D'][nextInt(p.bag.rng, 2)];
+    p.rainbow[0] = true;
+    p.rainbow[last] = true;
+  }
   p.shuffleAvailable = false;
   events.push({ type: 'shuffled', seat, hand: [...p.hand], rainbow: [...p.rainbow], at: now });
 

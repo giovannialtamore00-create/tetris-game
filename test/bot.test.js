@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { SOUTH, WEST, EMPTY } = require('../src/core/constants');
 const { legalPlacements, pieceCells, isLegalPlacement } = require('../src/core/board');
-const { chooseEasyMove, wantsShuffle, botThinkMs } = require('../src/core/bot');
+const { gapKeys, chooseEasyMove, wantsShuffle, botThinkMs } = require('../src/core/bot');
 const game = require('../src/core/game');
 const { buildState, fullBoardRows, move, at, assertValid } = require('./helpers');
 
@@ -42,11 +42,58 @@ describe('easy bot', () => {
     assert.equal(after.activeSeat, WEST);
   });
 
-  it('picks by the random number it is given', () => {
+  it('picks among equally good moves by the random number it is given', () => {
     const state = buildState({ hands: { [SOUTH]: ['T', 'L', 'S', 'Z'] } });
-    const moves = legalPlacements(state.owner, SOUTH, state.players[SOUTH].hand);
-    assert.deepEqual(chooseEasyMove(state, SOUTH, () => 0), moves[0]);
-    assert.deepEqual(chooseEasyMove(state, SOUTH, () => 0.9999), moves[moves.length - 1]);
+    assert.notDeepEqual(chooseEasyMove(state, SOUTH, () => 0), chooseEasyMove(state, SOUTH, () => 0.9999));
+  });
+
+  // Rows 0-7 open, a 1×1 gap at row 9 column 1, the rest South's.
+  const GAP_BOARD = [
+    '#.........#', '...........', '...........', '...........', '...........', '...........',
+    '...........', '...........', 'SSSSSSSSSSS', 'S.SSSSSSSSS', '#sssssssss#',
+  ];
+
+  it('fills a gap first', () => {
+    const state = buildState({ rows: GAP_BOARD, hands: { [SOUTH]: ['M'] } });
+    for (const r of [0, 0.5, 0.9999]) {
+      const m = chooseEasyMove(state, SOUTH, () => r);
+      assert.deepEqual(pieceCells('M', m.rotation, m.x, m.y), [at(9, 1)]);
+    }
+  });
+
+  it('does not leave a new gap when another move exists', () => {
+    // Rows 1-2 keep columns from filling up. Only row 7 is open to South: an I that does not touch either end leaves a gap.
+    const rows = ['#nnnnnnnnn#', 'NN.......NN', 'N.NNNNNNN.N', ...Array(4).fill('NNNNNNNNNNN'), '...........', 'SSSSSSSSSSS', 'SSSSSSSSSSS', '#sssssssss#'];
+    const state = buildState({ rows, hands: { [SOUTH]: ['I'] } });
+    const before = gapKeys(state.owner);
+    const createsGap = (m) => {
+      const after = state.owner.slice();
+      for (const i of pieceCells('I', m.rotation, m.x, m.y)) after[i] = SOUTH;
+      return [...gapKeys(after)].some((k) => !before.has(k));
+    };
+    assert.ok(legalPlacements(state.owner, SOUTH, ['I']).some(createsGap));
+    for (const r of [0, 0.3, 0.6, 0.9999]) assert.equal(createsGap(chooseEasyMove(state, SOUTH, () => r)), false);
+  });
+
+  it('ignores gaps left by a move that clears a line', () => {
+    // An I across row 7 clears it but leaves (6,10) alone; an I in row 9 leaves
+    // one of its 5 open cells alone without clearing anything.
+    const rows = [
+      '#nnnnnnnnn#', 'NN.......NN', 'N.NNNNNNN.N', ...Array(3).fill('NNNNNNNNNNN'), 'NNNNNNNNNN.', 'NNNNNNN....',
+      'SSSSSSSSSSS', '.....SSSSSS', '#sssssssss#',
+    ];
+    const state = buildState({ rows, hands: { [SOUTH]: ['I'] } });
+    for (const r of [0, 0.5, 0.9999]) {
+      const m = chooseEasyMove(state, SOUTH, () => r);
+      assert.deepEqual(pieceCells('I', m.rotation, m.x, m.y).sort((a, b) => a - b), [at(7, 7), at(7, 8), at(7, 9), at(7, 10)]);
+    }
+  });
+
+  it('leaves a gap only when every move does', () => {
+    // Only 5 open cells in row 7: any I placed there leaves one cell.
+    const rows = ['#nnnnnnnnn#', 'NN.......NN', 'N.NNNNNNN.N', ...Array(4).fill('NNNNNNNNNNN'), '.....NNNNNN', 'SSSSSSSSSSS', 'SSSSSSSSSSS', '#sssssssss#'];
+    const state = buildState({ rows, hands: { [SOUTH]: ['I'] } });
+    assert.ok(chooseEasyMove(state, SOUTH));
   });
 
   it('has no move when stuck', () => {

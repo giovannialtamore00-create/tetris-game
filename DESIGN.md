@@ -140,6 +140,7 @@ On each turn, the active player does one of the following:
 - It can be used at any time: during their own turn or anyone else's.
 - An unused offer stays available across any number of turns and passes. It disappears when the player makes a legal move, or when it is used.
 - If a player's hand is still stuck after shuffling, their next forced pass grants a fresh offer. Offers do not stack.
+- **Boxed in (rainbow mode, §25).** If the player has no legal move when they shuffle, the first slot and the special slot are rainbow pieces, and the special piece is a 1×1 or a 1×2 (`M` or `D`, picked at random). The other slots are dealt as usual.
 - If a player shuffles during their own live turn and the new hand has no legal placement, they are force-passed immediately.
 
 ## 9. Clocks
@@ -219,7 +220,7 @@ The host (the creator's tab, the "server" in this document) is authoritative. Cl
 
 ### Easy bots (`src/core/bot.js`)
 
-- **Behaviour.** An easy bot plays a uniformly random legal placement (each distinct placement counted once). It uses a shuffle offer as soon as it has one. On its live turn it "thinks" for 3–4 s before moving, well inside the AFK timer, so humans can follow the game.
+- **Behaviour.** An easy bot plays a random legal placement (each distinct placement counted once), picked among the best by gaps. A **gap** is a pocket of 1–3 connected empty cells (1×1, 1×2, small L, 1×3), checked on the board with the piece placed, before any line clear. Best first: moves that fill part of a gap without leaving a new one, then moves that leave no new gap, then moves that leave the fewest new gaps. A move that clears a line never counts as leaving a gap. It uses a shuffle offer as soon as it has one. On its live turn it "thinks" for 3–4 s before moving, well inside the AFK timer, so humans can follow the game.
 - **Online.** The **host** (the first human seat, normally the room's creator; if they leave the lobby, the next human) can add an easy bot to the first free seat, or remove one, before the game starts. Bots count towards the four seats, so a host can start at once with three bots. The server plays the bots with the room's timers. A lobby is removed as soon as no humans are left in it, even with bots seated. Bots are listed as bots in `seats` (`bot: true`) and are always shown as connected.
 - **Locally.** The menu's **Play vs 3 easy bots** starts a local game where you play South and the bots play in the browser. Pausing the local game pauses the bots too.
 - Bots follow every rule like human players, including scoring, the pause between turns and the clocks.
@@ -364,7 +365,7 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 
 **Shuffle offer.** Whenever a living player has no legal move, they get a shuffle offer at once; this is checked after every placement and shuffle. They can use it immediately. If the new hand still has no legal move, a fresh offer is available at once. As in turn-based mode, an unused offer disappears when the player makes a legal move.
 
-**Bots.** An easy bot acts when its cooldown is over plus a 3–4 s think: it places a random legal piece, or shuffles if it has none and an offer is available.
+**Bots.** An easy bot acts when its cooldown is over plus a 3–4 s think: it places a piece as in §13 "Easy bots" (gaps first), or shuffles if it has none and an offer is available.
 
 **Implementation (real-time).** `mode: 'realtime'` in the game config. The game runs in phase `realtime` with no active seat; each player has `cooldownUntil`. Moves are rejected with `coolingDown` before it and `notAlive` for players who are out. The only deadline is the game clock. New events: `cooldown { seat, until }` and `shuffleOffered { seat }`. The room lobby sends the chosen `mode`, and the host changes it with `setMode { mode }`.
 
@@ -413,7 +414,7 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 - **Scoring.** A rainbow block destroyed by a line clear is worth **+1** to the mover, never the +2 own-block bonus, even for the player who placed it.
 - **Detonation.** A group of connected rainbow blocks survives as long as it touches at least one block that is not rainbow (any player's, dulled or grey). Otherwise it detonates, and the mover gets **+1 per block**. This is checked after every placement, after the orphan and grey cluster resolution (§6), which can remove such neighbours.
 - **Invariant.** After every move, every rainbow group touches at least one non-rainbow block.
-- **Bots** play rainbow pieces like any other piece (a random legal placement).
+- **Bots** play rainbow pieces like any other piece (same gap rules).
 - **Hidden reward: perfect fit.** Not mentioned in the rulebook. A placement where, once placed, none of the piece's cells has an empty neighbour (board edge and corners count as closed) plugs a hole exactly. In both modes the played slot is refilled with a **rainbow 1×1** instead of a bag draw, with or without a line clear; in turn-based it replaces the line-clear special piece (one reward per move). Real-time cooldown is unaffected. Event: `rewardPiece { seat, piece: 'M', handIndex, rainbow: true, reason: 'perfectFit' }`. Checked with `isPerfectFit(owner, cells)` in `src/core/board.js` on the board before the piece is put down.
 
 **Implementation.** `rainbowMode` and `rainbowChance` (0.05) in the game config; with rainbow mode off nothing is rolled, so classic games deal exactly as before. Each player has `rainbow[k]` alongside `hand[k]`. Placement events carry `rainbow: true`; rainbow detonations are `detonated` events with `rainbow: true`. The client and the room server always start games with `rainbowMode: true`; the engine's default stays `false`, so the classic pool is still covered by its tests.
