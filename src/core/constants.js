@@ -31,7 +31,7 @@ const REALTIME = 'realtime';
 const DEFAULT_CONFIG = Object.freeze({
   playerCount: 4, // §26: 4, or 2 (South vs North)
   mode: TURNS, // 'turns' (turn-based) or 'realtime' (§21)
-  cooldownMs: 3_000, // real-time mode: wait after a placement without a line clear
+  cooldownMs: 2_300, // real-time mode: wait after a placement without a line clear
   rainbowMode: false, // §25: rainbow mode on or off
   rainbowChance: 0.05, // §25: in rainbow mode, chance that any dealt piece is a rainbow piece
   handSize: 4,

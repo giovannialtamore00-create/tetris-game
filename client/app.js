@@ -28,6 +28,8 @@
     board: $('board'),
     panels: { bottom: $('panelBottom'), left: $('panelLeft'), top: $('panelTop'), right: $('panelRight') },
     log: $('log'),
+    logPanel: $('logPanel'),
+    logBtn: $('logBtn'),
     gameClock: $('gameClock'),
     status: $('status'),
     hint: $('hint'),
@@ -162,6 +164,8 @@
     selected: null, // hand index of the picked-up piece
     rotation: 0, // as the viewer sees it on screen (see boardRotation)
     hover: null, // board cell index under the pointer
+    parked: null, // touch: board cell where a dropped piece that did not fit waits
+    logOpen: false, // the event log can be opened once the game is over
     viewSeat: null, // whose point of view the board is drawn from (their edge at the bottom)
     message: '',
     messageIsError: false,
@@ -191,6 +195,7 @@
   function showScreen(name) {
     for (const screen of ['menu', 'lobby', 'game']) $(`${screen}Screen`).hidden = screen !== name;
     if (name !== 'game') el.overlay.hidden = true;
+    document.body.classList.toggle('in-game', name === 'game');
   }
 
   function resetGameView() {
@@ -199,6 +204,7 @@
     ui.rotation = 0;
     ui.viewSeat = null;
     ui.overlayDismissed = false;
+    ui.logOpen = false;
     ui.history = [];
     ui.viewIndex = null;
     el.log.innerHTML = '';
@@ -796,7 +802,7 @@
   const MODE_NAMES = { turns: 'Turn-based', realtime: 'Real-time' };
   const MODE_HELP = {
     turns: 'Players take turns, each with a personal clock.',
-    realtime: 'No turns: place whenever you like, with a 3 s cooldown after each piece (none after a line clear).',
+    realtime: 'No turns: place whenever you like, with a 2.3 s cooldown after each piece (none after a line clear).',
   };
 
   // §26: the host picks 2 or 4 players; everyone else sees the choice.
@@ -853,6 +859,7 @@
 
   function selectPiece(handIndex) {
     if (!ui.state || ctl.controlledSeat() === null) return;
+    ui.parked = null;
     if (ui.selected === handIndex) {
       ui.selected = null;
     } else {
@@ -953,6 +960,8 @@
   // --- Board rendering ------------------------------------------------------------
 
   const cellEls = []; // indexed by screen position
+  const boardCellOf = (target) =>
+    target.dataset && target.dataset.p !== undefined ? boardOfScreen[view()][Number(target.dataset.p)] : null;
   function buildBoard() {
     for (let p = 0; p < C.CELL_COUNT; p++) {
       const div = document.createElement('div');
@@ -961,20 +970,28 @@
       el.board.appendChild(div);
       cellEls.push(div);
     }
-    const boardCellOf = (target) =>
-      target.dataset && target.dataset.p !== undefined ? boardOfScreen[view()][Number(target.dataset.p)] : null;
-    el.board.addEventListener('mousemove', (e) => {
+    // On touch screens pieces are placed by dragging, so a tap on the board only
+    // matters on a parked piece (see below). Hover is mouse-only.
+    let boardTouched = false;
+    el.board.addEventListener('pointerdown', (e) => {
+      boardTouched = e.pointerType !== 'mouse';
+      if (boardTouched) startParkedTouch(e);
+    });
+    el.board.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
       const cell = boardCellOf(e.target);
       if (cell !== ui.hover) {
         ui.hover = cell;
         if (ui.state) renderBoard();
       }
     });
-    el.board.addEventListener('mouseleave', () => {
+    el.board.addEventListener('pointerleave', (e) => {
+      if (e.pointerType !== 'mouse') return;
       ui.hover = null;
       if (ui.state) renderBoard();
     });
     el.board.addEventListener('click', (e) => {
+      if (boardTouched) return;
       const cell = boardCellOf(e.target);
       if (ui.state && cell !== null) place(cell);
     });
@@ -983,6 +1000,84 @@
       rotate(1);
     });
   }
+
+  // --- Touch: tap a hand piece to pick it up (tap again to rotate), drag it onto
+  // the board and let go: on a legal spot it is placed, otherwise it stays parked
+  // on the board (ui.parked), where a tap rotates it and a drag moves it again.
+  // Picking another piece clears it. While dragging from the hand the preview
+  // sits above the finger so the finger does not hide it. Moves are followed on
+  // the document because the hand is rebuilt on every render.
+
+  const DRAG_START_PX = 10;
+  // While a finger is down on a hand piece or the parked piece:
+  // { id, k, x0, y0, dx, dy, parked, dragging, cell }; (dx, dy) = finger to preview.
+  let touch = null;
+  let lastTouchAt = 0; // the click a browser fires after a tap is ignored
+
+  function cellUnderFinger(e) {
+    const target = document.elementFromPoint(e.clientX - touch.dx, e.clientY - touch.dy);
+    return target ? boardCellOf(target) : null;
+  }
+
+  function startTouch(e, k) {
+    if (e.pointerType === 'mouse' || touch) return;
+    const size = cellEls[0].getBoundingClientRect().height;
+    touch = { id: e.pointerId, k, x0: e.clientX, y0: e.clientY, dx: 0, dy: 1.5 * size, parked: false, dragging: false, cell: null };
+  }
+
+  // A finger on the parked piece: keeps the piece where it is relative to the finger.
+  function startParkedTouch(e) {
+    if (touch || ui.parked === null || ui.selected === null) return;
+    const placement = placementAt(ui.parked);
+    const cell = boardCellOf(e.target);
+    if (!placement || cell === null || !placement.cells.includes(cell)) return;
+    const anchor = cellEls[boardOfScreen[view()].indexOf(ui.parked)].getBoundingClientRect();
+    touch = {
+      id: e.pointerId, k: ui.selected, x0: e.clientX, y0: e.clientY,
+      dx: e.clientX - (anchor.x + anchor.width / 2), dy: e.clientY - (anchor.y + anchor.height / 2),
+      parked: true, dragging: false, cell: null,
+    };
+  }
+
+  document.addEventListener('pointermove', (e) => {
+    if (!touch || e.pointerId !== touch.id || !ui.state) return;
+    if (!touch.dragging) {
+      if (Math.hypot(e.clientX - touch.x0, e.clientY - touch.y0) < DRAG_START_PX) return;
+      touch.dragging = true;
+      if (ui.selected !== touch.k) selectPiece(touch.k);
+      ui.parked = null;
+    }
+    const cell = cellUnderFinger(e);
+    touch.cell = cell;
+    if (cell !== ui.hover) {
+      ui.hover = cell;
+      renderBoard();
+    }
+  });
+
+  function endTouch(e, cancelled) {
+    if (!touch || e.pointerId !== touch.id) return;
+    const { k, parked, dragging, cell: lastCell } = touch;
+    touch = null;
+    lastTouchAt = Date.now();
+    if (!ui.state) return;
+    if (!dragging) {
+      if (cancelled) return;
+      if (parked || ui.selected === k) rotate(1);
+      else selectPiece(k);
+      return;
+    }
+    // The cell from the last move: some browsers report no position when the finger lifts.
+    const cell = cancelled ? null : lastCell;
+    ui.hover = null;
+    ui.parked = null;
+    const placement = placementAt(cell);
+    if (placement && placement.legal) place(cell);
+    else if (placement) ui.parked = cell;
+    if (ui.state) renderBoard();
+  }
+  document.addEventListener('pointerup', (e) => endTouch(e, false));
+  document.addEventListener('pointercancel', (e) => endTouch(e, true));
 
   // `board` is the live game, or a move-history entry when looking back.
   function cellStyle(i, board) {
@@ -1012,7 +1107,7 @@
   }
 
   function renderBoard() {
-    const placement = placementAt(ui.hover);
+    const placement = placementAt(ui.hover !== null ? ui.hover : ui.parked);
     const preview = new Set(placement ? placement.cells : []);
     const map = boardOfScreen[view()];
     for (const [side, prop] of [['top', '--edge-top'], ['bottom', '--edge-bottom'], ['left', '--edge-left'], ['right', '--edge-right']]) {
@@ -1099,6 +1194,8 @@
     const grid = document.createElement('div');
     grid.className = 'mini';
     grid.style.gridTemplateColumns = `repeat(${w}, var(--mini, 9px))`;
+    grid.style.setProperty('--cols', w); // phones size the piece to fill its slot
+    grid.style.setProperty('--rows', h);
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         const d = document.createElement('div');
@@ -1111,6 +1208,8 @@
 
   const pieceName = (piece) => PIECE_NAMES[piece] || piece;
   const fmtSeconds = (ms) => (Math.max(0, ms) / 1000).toFixed(1);
+  // The 2.3 s cooldown counts 2, 1, then ✓ (never 3).
+  const cooldownSeconds = (ms) => Math.min(2, Math.ceil(ms / 1000));
   const liveSeat = () => {
     const s = ui.state;
     return s.phase === 'turn' && s.turnStartedAt !== null ? s.activeSeat : null;
@@ -1175,7 +1274,7 @@
       card.append(head, meta);
       if (!isRealtimeGame()) card.appendChild(afk); // real-time has no turns, so no AFK timer
 
-      // Real-time: a 3, 2, 1 countdown badge beside the hand while cooling down.
+      // Real-time: a 2, 1 countdown badge beside the hand while cooling down.
       const badge = span('cooldown-badge', '');
       badge.hidden = !isRealtimeGame() || p.status !== C.ALIVE;
       badge.title = 'Cooldown before this player can place again';
@@ -1192,19 +1291,34 @@
         const label = `${rainbow ? 'Rainbow ' : ''}${pieceName(piece)}${special ? ' (special)' : ''}${rainbow ? ' — place it anywhere touching any block' : ''}`;
         slot.title = isMine ? `${label} — press ${k + 1}` : label;
         slot.appendChild(miniPiece(piece, selected ? ui.rotation : 0, hue, rainbow));
-        if (isMine) slot.addEventListener('click', () => selectPiece(k));
+        if (isMine) {
+          slot.addEventListener('pointerdown', (e) => startTouch(e, k));
+          slot.addEventListener('click', () => {
+            if (Date.now() - lastTouchAt > 500) selectPiece(k);
+          });
+        }
         hand.appendChild(slot);
       });
       const handRow = document.createElement('div');
       handRow.className = 'hand-row';
       handRow.append(hand, badge);
+      if (isMine) {
+        const rotateBtn = document.createElement('button');
+        rotateBtn.type = 'button';
+        rotateBtn.className = 'rotate-btn';
+        rotateBtn.textContent = '⟳';
+        rotateBtn.title = 'Rotate the picked-up piece (R)';
+        rotateBtn.disabled = ui.selected === null;
+        rotateBtn.addEventListener('click', () => rotate(1));
+        handRow.appendChild(rotateBtn);
+      }
       card.appendChild(handRow);
 
       if (p.status === C.ALIVE && p.shuffleAvailable && ctl.canShuffle(p.seat)) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'shuffle-btn';
-        btn.textContent = side === 'bottom' ? 'Shuffle hand (offer available)' : 'Shuffle';
+        btn.textContent = 'Shuffle';
         btn.addEventListener('click', () => ctl.shuffle(p.seat));
         card.appendChild(btn);
       }
@@ -1222,11 +1336,11 @@
       const refs = timerEls[p.seat];
       if (!refs) continue;
       if (realtime) {
-        // No personal clocks: show the cooldown instead (3, 2, 1, then ready).
+        // No personal clocks: show the cooldown instead (2, 1, then ready).
         refs.clock.textContent = '';
         const left = p.cooldownUntil - t;
         const cooling = !s.over && left > 0;
-        refs.badge.textContent = cooling ? String(Math.ceil(left / 1000)) : '✓';
+        refs.badge.textContent = cooling ? String(cooldownSeconds(left)) : '✓';
         refs.badge.classList.toggle('cooling', cooling);
         refs.badge.classList.toggle('ready', !cooling && !s.over);
         continue;
@@ -1273,6 +1387,10 @@
     el.soundBtn.textContent = sound.muted ? 'Sound: off' : 'Sound: on';
   }
 
+  const PLACE_HINT = window.matchMedia('(pointer: coarse)').matches
+    ? 'Drag the piece onto the board and let go to place it. Tap it or ⟳ to rotate, on the board too.'
+    : 'Hover over the board and click to place. R rotates.';
+
   function renderHint() {
     let text = ui.message;
     if (!text) {
@@ -1285,15 +1403,15 @@
         text = ctl.fixedViewSeat() !== null ? 'You are out of the game — watching.' : 'Waiting for the shuffle window to close.';
       } else if (isRealtimeGame()) {
         const left = s.players[seat].cooldownUntil - ctl.now();
-        if (left > 0) text = `Cooling down (${Math.ceil(left / 1000)}): pick and rotate your next piece meanwhile.`;
+        if (left > 0) text = `Cooling down (${cooldownSeconds(left)}): pick and rotate your next piece meanwhile.`;
         else if (ui.selected === null) text = 'Ready: pick a piece and place it. Clear a line to skip the cooldown.';
-        else text = 'Hover over the board and click to place. R rotates.';
+        else text = PLACE_HINT;
       } else if (!ctl.canPlace()) {
         text = 'Not your turn yet: you can pick, rotate and preview a piece while you wait.';
       } else if (ui.selected === null) {
         text = ctl.fixedViewSeat() !== null ? 'Your turn: pick a piece from your hand.' : `${SEATS[seat].name}: pick a piece from your hand.`;
       } else {
-        text = 'Hover over the board and click to place. R rotates.';
+        text = PLACE_HINT;
       }
     }
     el.hint.textContent = text;
@@ -1336,7 +1454,9 @@
       case 'turnStarted': return `${who(e.seat)}'s turn.`;
       case 'placed': return `${who(e.seat)} placed ${e.rainbow ? 'a rainbow ' : ''}${pieceName(e.piece)} at ${cellName(e.cells[0])}.`;
       case 'lineClearBonus': return `${who(e.seat)} gains +${e.ms / 1000} s for ${e.lines} line clear(s) (up to the cap).`;
-      case 'rewardPiece': return `${who(e.seat)} earned a special piece for the line clear: ${pieceName(e.piece)}.`;
+      case 'rewardPiece':
+        if (e.reason === 'perfectFit') return `${who(e.seat)} filled a hole perfectly: rainbow ${pieceName(e.piece)}.`;
+        return `${who(e.seat)} earned a special piece for the line clear: ${pieceName(e.piece)}.`;
       case 'linesCompleted': return `Line clear: ${e.lines.map(lineName).join(', ')}.`;
       case 'hit': return null;
       case 'destroyed': {
@@ -1394,6 +1514,9 @@
   function render() {
     if (!ui.state || !ctl) return;
     el.newGameBtn.hidden = ctl.mode !== 'local';
+    el.logBtn.hidden = !ui.state.over;
+    el.logBtn.textContent = ui.logOpen ? 'Hide log' : 'Show log';
+    el.logPanel.hidden = !(ui.state.over && ui.logOpen);
     renderBoard();
     renderPanels();
     renderHint();
@@ -1518,6 +1641,17 @@
     ui.overlayDismissed = true;
     render();
   });
+  $('overlayLog').addEventListener('click', () => {
+    ui.overlayDismissed = true;
+    ui.logOpen = true;
+    render();
+  });
+  el.logBtn.addEventListener('click', () => {
+    ui.logOpen = !ui.logOpen;
+    render();
+  });
+  // iOS Safari ignores user-scalable=no, so block its pinch gesture directly.
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
 
   // --- Start-up -------------------------------------------------------------------
 

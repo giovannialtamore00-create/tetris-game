@@ -344,7 +344,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 | Shuffle window | 10 s |
 | Game length | 10 minutes |
 | Game mode | `realtime` (default for online rooms and bots) or `turns` (`mode`; local hot-seat is always turn-based) |
-| Real-time cooldown | 3 s (`cooldownMs`) |
+| Real-time cooldown | 2.3 s (`cooldownMs`) |
 
 ---
 
@@ -356,7 +356,7 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 
 **No turns.** Every living player may place a piece at any time. The server applies placements in the order they arrive; if two players go for the same cells at nearly the same moment, the second placement is no longer legal and is rejected.
 
-**Cooldown.** After placing a piece, a player must wait **3 s** before placing another. If the placement completed at least one line, there is **no cooldown**: they can place again straight away. While cooling down, a player can still pick up, rotate and preview pieces, and can shuffle. The client shows a 3, 2, 1 countdown next to each hand.
+**Cooldown.** After placing a piece, a player must wait **2.3 s** before placing another. If the placement completed at least one line, there is **no cooldown**: they can place again straight away. While cooling down, a player can still pick up, rotate and preview pieces, and can shuffle. The client shows a 2, 1 countdown next to each hand, then a green ✓ (it never shows 3).
 
 **No personal clocks.** There are no personal clocks, move or line-clear time bonuses, AFK timer, timing out (so no dulled blocks), pause between turns, rounds, passive round points, forced passes or shuffle window. The **10-minute game clock** still ends the game, as does having at most one player left alive. Scoring, ranking and tie-breaks are unchanged.
 
@@ -414,6 +414,7 @@ A second game mode, chosen by the host in the room lobby (or from the menu when 
 - **Detonation.** A group of connected rainbow blocks survives as long as it touches at least one block that is not rainbow (any player's, dulled or grey). Otherwise it detonates, and the mover gets **+1 per block**. This is checked after every placement, after the orphan and grey cluster resolution (§6), which can remove such neighbours.
 - **Invariant.** After every move, every rainbow group touches at least one non-rainbow block.
 - **Bots** play rainbow pieces like any other piece (a random legal placement).
+- **Hidden reward: perfect fit.** Not mentioned in the rulebook. A placement where, once placed, none of the piece's cells has an empty neighbour (board edge and corners count as closed) plugs a hole exactly. In both modes the played slot is refilled with a **rainbow 1×1** instead of a bag draw, with or without a line clear; in turn-based it replaces the line-clear special piece (one reward per move). Real-time cooldown is unaffected. Event: `rewardPiece { seat, piece: 'M', handIndex, rainbow: true, reason: 'perfectFit' }`. Checked with `isPerfectFit(owner, cells)` in `src/core/board.js` on the board before the piece is put down.
 
 **Implementation.** `rainbowMode` and `rainbowChance` (0.05) in the game config; with rainbow mode off nothing is rolled, so classic games deal exactly as before. Each player has `rainbow[k]` alongside `hand[k]`. Placement events carry `rainbow: true`; rainbow detonations are `detonated` events with `rainbow: true`. The client and the room server always start games with `rainbowMode: true`; the engine's default stays `false`, so the classic pool is still covered by its tests.
 

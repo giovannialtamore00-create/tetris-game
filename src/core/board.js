@@ -106,6 +106,14 @@ function isLegalPlacement(owner, seat, cells, rainbow = false) {
   return cells.some((i) => NEIGHBOURS[i].some((n) => touches(owner[n])));
 }
 
+// Hidden reward (§25): the piece plugs a hole exactly, so once placed none of
+// its cells has an empty neighbour. The board edge and the corners count as
+// closed. Checked on the board before the piece is put down.
+function isPerfectFit(owner, cells) {
+  const own = new Set(cells);
+  return cells.every((i) => NEIGHBOURS[i].every((n) => own.has(n) || owner[n] !== EMPTY));
+}
+
 // Every distinct legal placement of the hand's pieces, as moves
 // { handIndex, rotation, x, y }. Placements covering the same cells with the
 // same kind of piece (e.g. the O's identical rotations) are listed once.
@@ -164,6 +172,7 @@ module.exports = {
   createStartingBoard,
   pieceCells,
   isLegalPlacement,
+  isPerfectFit,
   legalPlacements,
   hasLegalMove,
   countBlocks,

@@ -386,3 +386,126 @@ button.primary { background: hsl(210, 60%, 38%); border-color: hsl(210, 60%, 48%
 
 /* §26: a side nobody sits on in a 2-player game */
 .seat-panel.empty-side { text-align: center; padding: 10px; }
+
+/* Touch: the ⟳ button beside your hand, and no scrolling or zooming while a
+   piece is dragged from the hand onto the board. */
+.rotate-btn { flex: none; width: 52px; height: 52px; font-size: 26px; padding: 0; border-radius: 50%; }
+body { touch-action: manipulation; }
+.board, .seat-panel.mine .hand-slot { touch-action: none; user-select: none; -webkit-user-select: none; }
+.help-touch { display: none; }
+@media (pointer: coarse) {
+  .help-touch { display: block; }
+  .help-keys { display: none; }
+}
+
+.log-panel[hidden] { display: none; }
+
+/* Shuffle: only shown when offered, in the player's own colour so it stands out. */
+.shuffle-btn, .seat-panel.mine .shuffle-btn {
+  background: hsl(var(--hue), 65%, 45%);
+  border: none;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Phones (portrait): a fixed screen with no scrolling or zooming. The other
+   players sit in one row above the board, the board fills the width (or the
+   height left over, whichever is smaller) and your own panel is below it. Only
+   pieces, scores, clocks and the cooldown badge are shown. */
+@media (max-width: 600px) {
+  body.in-game { height: 100dvh; overflow: hidden; touch-action: none; }
+  body.in-game .rules-tab,
+  .status, #logBtn, .history-bar, .hint, .help, .log-panel, #overlayLog,
+  .player-meta > span:first-child, .seat-panel .player-seat { display: none; }
+  #gameScreen { height: 100dvh; display: flex; flex-direction: column; }
+  .topbar { gap: 6px; padding: 6px 8px; justify-content: space-between; }
+  .game-clock { font-size: 20px; min-width: 0; }
+  .controls { gap: 4px; }
+  .controls button { padding: 4px 8px; font-size: 12px; }
+  .layout { flex: 1; min-height: 0; padding: 6px; gap: 0; align-items: center; }
+  .table-area { width: 100%; }
+  .table {
+    width: 100%;
+    grid-template-areas:
+      "left   top    right"
+      "board  board  board"
+      "bottom bottom bottom";
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    align-items: stretch;
+  }
+  :root { --cell: min(calc((100vw - 52px) / 11), calc((100dvh - 400px) / 11)); }
+  .seat-panel { padding: 4px 6px; }
+  .seat-panel.top, .seat-panel.left, .seat-panel.right {
+    width: 100%;
+    font-size: 11px;
+    --mini: 4px;
+    border: 1px solid var(--line);
+    border-top: 4px solid hsl(var(--hue), 60%, 50%);
+  }
+  .seat-panel.left .hand, .seat-panel.right .hand, .seat-panel.top .hand { grid-template-columns: repeat(4, 1fr); gap: 2px; }
+  .seat-panel.top .hand-slot, .seat-panel.left .hand-slot, .seat-panel.right .hand-slot { padding: 1px; }
+  .seat-panel.top .player-score, .seat-panel.left .player-score, .seat-panel.right .player-score { font-size: 13px; }
+  .player-meta { margin: 0 0 3px; font-size: 11px; }
+  .seat-panel.top .cooldown-badge, .seat-panel.left .cooldown-badge, .seat-panel.right .cooldown-badge { display: none; }
+  .seat-panel.bottom { width: 100%; --mini: 12px; }
+  .seat-panel.mine .hand-slot { padding: 4px; }
+  .controls button { white-space: nowrap; }
+  .hand-row .hand { min-width: 0; }
+  .seat-panel .hand { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hand-slot { min-width: 0; }
+  /* Fill the screen height: others at the top, your hand at the bottom within thumb reach. */
+  .layout { display: flex; flex-direction: column; align-items: stretch; }
+  .table-area { flex: 1; min-height: 0; }
+  .table { flex: 1; grid-template-rows: auto 1fr auto; align-content: stretch; }
+  .board { align-self: start; }
+  .seat-panel.top, .seat-panel.left, .seat-panel.right { align-self: start; }
+  /* Your panel: the four pieces use the full width, with the cooldown badge,
+     rotate and shuffle in a row underneath. */
+  .seat-panel.mine {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    grid-template-areas: "head head head" "meta meta meta" "afk afk afk" "hand hand hand" "badge rotate shuffle";
+    gap: 4px 8px;
+    align-items: center;
+    --mini: min(18px, calc((100vw - 60px) / 20));
+  }
+  .seat-panel.mine .hand-row { display: contents; }
+  .seat-panel.mine .player-head { grid-area: head; }
+  .seat-panel.mine .player-meta { grid-area: meta; margin: 0; }
+  .seat-panel.mine .afk-bar { grid-area: afk; margin: 0; }
+  .seat-panel.mine .hand { grid-area: hand; gap: 6px; }
+  .seat-panel.mine .cooldown-badge { grid-area: badge; width: 48px; height: 48px; }
+  .seat-panel.mine .rotate-btn { grid-area: rotate; width: 100%; height: 48px; border-radius: 24px; }
+  .seat-panel.mine .shuffle-btn { grid-area: shuffle; margin: 0; height: 48px; font-size: 16px; border-radius: 24px; }
+}
+@media (max-width: 360px) {
+  .controls button { padding: 4px 5px; font-size: 11px; }
+  .game-clock { font-size: 17px; }
+  .rotate-btn, .seat-panel.mine .cooldown-badge { width: 40px; height: 40px; font-size: 20px; }
+  .hand-row { gap: 4px; }
+  .seat-panel.mine .hand { gap: 4px; }
+  .seat-panel.bottom { --mini: 10px; }
+}
+/* Tall phones: room for your hand as a 2×2 grid with bigger pieces. */
+@media (max-width: 600px) and (min-height: 780px) {
+  .seat-panel.mine { --mini: 22px; }
+  .seat-panel.mine .hand { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .seat-panel.mine .hand-slot { aspect-ratio: auto; height: calc((100dvh - 640px) / 2); max-height: 130px; }
+}
+/* Phones: every hand piece fills its slot. Sized so a 3×2 piece fills it;
+   longer or rotated pieces shrink just enough to fit. */
+@media (max-width: 600px) {
+  .hand-slot { container-type: size; }
+  .hand-slot .mini {
+    --mini: min(calc((100cqw - 6px) / max(var(--cols), 3) - 1px), calc((100cqh - 6px) / max(var(--rows), 2) - 1px));
+  }
+  .seat-panel.mine .hand-slot { padding: 0; }
+}
+@media (max-width: 600px) {
+  .seat-panel:not(.mine) .hand-slot { padding: 0; }
+  .seat-panel:not(.mine) .hand-slot .mini {
+    --mini: min(calc((100cqw - 4px) / max(var(--cols), 3)), calc((100cqh - 4px) / max(var(--rows), 2)) - 1px);
+    gap: 0.5px;
+  }
+}

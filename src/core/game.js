@@ -18,6 +18,7 @@ const {
   createStartingBoard,
   pieceCells,
   isLegalPlacement,
+  isPerfectFit,
   hasLegalMove,
   countBlocks,
 } = require('./board');
@@ -307,6 +308,8 @@ function applyMove(state, seat, move, now) {
   const cfg = s.config;
   const mover = s.players[seat];
 
+  const perfectFit = isPerfectFit(state.owner, cells);
+
   // §15 step 2: charge time (turn-based only; real-time has no personal clocks).
   if (!realtime) mover.remainingMs -= now - s.turnStartedAt;
   const lines = resolvePlacement(s, seat, { piece, rotation, x, y, cells, rainbow }, now, events);
@@ -315,7 +318,8 @@ function applyMove(state, seat, move, now) {
   if (realtime) {
     // §21: refill from the bag (no special reward piece); a line clear skips the cooldown.
     if (mover.status === ALIVE) {
-      deal(s, mover, handIndex, drawPiece(mover.bag));
+      if (perfectFit) givePerfectFitReward(mover, seat, handIndex, events);
+      else deal(s, mover, handIndex, drawPiece(mover.bag));
       mover.cooldownUntil = lines.length > 0 ? now : now + cfg.cooldownMs;
       events.push({ type: 'cooldown', seat, until: mover.cooldownUntil, at: now });
     }
@@ -327,7 +331,9 @@ function applyMove(state, seat, move, now) {
   // Step 9: mover bookkeeping. Completing a line is rewarded by refilling the
   // played slot with a special piece instead of a bag draw (§3).
   if (mover.status === ALIVE) {
-    if (lines.length > 0) {
+    if (perfectFit) {
+      givePerfectFitReward(mover, seat, handIndex, events);
+    } else if (lines.length > 0) {
       deal(s, mover, handIndex, drawSpecialPiece(mover.bag));
       events.push({ type: 'rewardPiece', seat, piece: mover.hand[handIndex], handIndex });
     } else {
@@ -351,6 +357,14 @@ function halveGameClock(s, now, events) {
   const left = Math.max(0, s.endsAt - now);
   s.endsAt = now + Math.floor(left / 2);
   events.push({ type: 'clockHalved', at: now, endsAt: s.endsAt });
+}
+
+// Hidden reward (§25): a piece that plugs a hole exactly refills its slot with
+// a rainbow 1×1, instead of a bag draw or a line-clear special piece.
+function givePerfectFitReward(player, seat, k, events) {
+  player.hand[k] = 'M';
+  player.rainbow[k] = true;
+  events.push({ type: 'rewardPiece', seat, piece: 'M', handIndex: k, rainbow: true, reason: 'perfectFit' });
 }
 
 // Puts `piece` in hand slot k and rolls whether it is a rainbow piece (§25).

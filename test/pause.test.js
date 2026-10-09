@@ -51,10 +51,10 @@ describe('pause', () => {
 
   it('shifts real-time cooldowns too', () => {
     const state = buildState({ config: { mode: 'realtime' }, hands: { [SOUTH]: O_HAND } });
-    const cooling = move(state, SOUTH, O_SOUTH, 1_000).state; // cooldown until 4 s
+    const cooling = move(state, SOUTH, O_SOUTH, 1_000).state; // cooldown until 3.3 s
     const paused = pause(cooling, WEST, 2_000).state;
     const resumed = resume(paused, WEST, 12_000).state;
-    assert.equal(resumed.players[SOUTH].cooldownUntil, 14_000);
+    assert.equal(resumed.players[SOUTH].cooldownUntil, 13_300);
     assert.equal(game.applyMove(resumed, SOUTH, { ...O_SOUTH, handIndex: 1, x: 3, y: 7 }, 13_000).error, 'coolingDown');
   });
 

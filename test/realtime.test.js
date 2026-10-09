@@ -1,6 +1,6 @@
 'use strict';
 
-// Real-time mode (§21): no turns, no personal clocks, a 3 s cooldown after
+// Real-time mode (§21): no turns, no personal clocks, a 2.3 s cooldown after
 // each placement unless it cleared a line.
 
 const { describe, it } = require('node:test');
@@ -61,12 +61,12 @@ describe('real-time mode', () => {
     assert.equal(b.owner[at(5, 3)], WEST);
   });
 
-  it('puts a player on a 3 s cooldown after a placement', () => {
+  it('puts a player on a 2.3 s cooldown after a placement', () => {
     const { state, events } = move(realtime(), SOUTH, O_SOUTH, 1_000);
-    assert.equal(state.players[SOUTH].cooldownUntil, 4_000);
-    assert.deepEqual(ofType(events, 'cooldown'), [{ type: 'cooldown', seat: SOUTH, until: 4_000, at: 1_000 }]);
-    assert.deepEqual(game.applyMove(state, SOUTH, O_SOUTH_2, 3_999), { ok: false, error: 'coolingDown' });
-    move(state, SOUTH, O_SOUTH_2, 4_000);
+    assert.equal(state.players[SOUTH].cooldownUntil, 3_300);
+    assert.deepEqual(ofType(events, 'cooldown'), [{ type: 'cooldown', seat: SOUTH, until: 3_300, at: 1_000 }]);
+    assert.deepEqual(game.applyMove(state, SOUTH, O_SOUTH_2, 3_299), { ok: false, error: 'coolingDown' });
+    move(state, SOUTH, O_SOUTH_2, 3_300);
   });
 
   it('skips the cooldown after a line clear, and refills from the bag instead of a special piece', () => {
@@ -114,8 +114,12 @@ describe('real-time mode', () => {
     state.players[SOUTH].bag.queue = ['O'];
     const { state: after, events } = move(state, SOUTH, { handIndex: 0, rotation: 0, x: 4, y: 8 }, 1_000);
     assert.equal(ofType(events, 'linesCompleted').length, 0);
-    // Only 1-cell holes are left and nobody holds a 1x1: all four get an offer at once.
-    assert.deepEqual(ofType(events, 'shuffleOffered').map((e) => e.seat), [SOUTH, WEST, NORTH, EAST]);
+    // Only 1-cell holes are left and the others hold no 1x1: they get an offer at
+    // once. South's 1x1 filled a hole exactly, so South was refilled with a rainbow
+    // 1x1 (the hidden perfect-fit reward, §25) and still has a move.
+    assert.deepEqual(after.players[SOUTH].hand[0], 'M');
+    assert.equal(after.players[SOUTH].rainbow[0], true);
+    assert.deepEqual(ofType(events, 'shuffleOffered').map((e) => e.seat), [WEST, NORTH, EAST]);
     // A shuffle guarantees one special piece. With a 1x2 as the special piece
     // West is still stuck, so a fresh offer comes straight away.
     after.players[WEST].bag.rng.s = rngStateGiving('D');
@@ -133,7 +137,7 @@ describe('real-time mode', () => {
     cooling.players[SOUTH].shuffleAvailable = true;
     const { state: after } = shuffle(cooling, SOUTH, 2_000);
     assert.equal(after.players[SOUTH].shuffleAvailable, false);
-    assert.equal(after.players[SOUTH].cooldownUntil, 4_000);
+    assert.equal(after.players[SOUTH].cooldownUntil, 3_300);
   });
 
   it('rejects moves from players who are out', () => {
