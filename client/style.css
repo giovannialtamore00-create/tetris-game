@@ -287,17 +287,58 @@ kbd {
   flex-direction: column;
   gap: 16px;
 }
-.menu h1 { margin: 0; font-size: 34px; letter-spacing: 0.04em; }
+/* Menu and lobby sit on a faint 11×11-style grid, like the board. */
+body:not(.in-game) {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(112, 161, 255, 0.12), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 36px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 36px),
+    var(--bg);
+}
+.brand { text-align: center; padding: 12px 0 4px; }
+.field-logo { display: block; width: 88px; height: 88px; margin: 0 auto 14px; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.5)); }
+.logo { margin: 0; }
+.logo svg { display: block; width: min(300px, 80vw); height: auto; margin: 0 auto; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.5)); }
+.tagline { margin: 12px 0 0; color: var(--muted); font-size: 13px; letter-spacing: 0.02em; }
 .menu-card {
-  background: var(--panel);
+  background: rgba(30, 33, 41, 0.92);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
-.menu-card h2 { margin: 0; font-size: 16px; }
+.menu-card h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+.menu-card button, .menu-card input { min-height: 44px; border-radius: 10px; font-size: 15px; }
+.menu-card button.primary { font-weight: 600; }
+.menu-card .lobby-seats .remove-bot { min-height: 0; font-size: 12px; }
+/* 2 / 4 players switch. */
+.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--panel-2); border-radius: 10px; }
+.segmented label { cursor: pointer; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.segmented small { font-weight: 400; font-size: 11px; }
+.segmented input:checked + span { background: hsl(210, 60%, 38%); color: var(--text); }
+.segmented input:focus-visible + span { outline: 2px solid hsl(210, 70%, 55%); }
 .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 input {
   font: inherit;
@@ -417,7 +458,7 @@ body { touch-action: manipulation; }
   body.in-game .rules-tab,
   .status, #logBtn, .history-bar, .hint, .help, .log-panel, #overlayLog,
   .player-meta > span:first-child, .seat-panel .player-seat { display: none; }
-  #gameScreen { height: 100dvh; display: flex; flex-direction: column; }
+  #gameScreen:not([hidden]) { height: 100dvh; display: flex; flex-direction: column; }
   .topbar { gap: 6px; padding: 6px 8px; justify-content: space-between; }
   .game-clock { font-size: 20px; min-width: 0; }
   .controls { gap: 4px; }

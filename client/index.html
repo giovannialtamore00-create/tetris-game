@@ -4,12 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>TETRA</title>
+  <meta name="theme-color" content="#15171c">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- Menu -->
   <section class="screen menu" id="menuScreen">
-    <h1>TETRA</h1>
+    <header class="brand">
+      <img class="field-logo" src="icon.svg" alt="">
+      <h1 class="logo">
+        <!-- TETRA in blocks: one letter per player colour, a rainbow A. -->
+        <svg viewBox="0 0 189 49" role="img" aria-label="TETRA">
+          <defs>
+            <linearGradient id="rb" gradientUnits="userSpaceOnUse" x1="160" y1="0" x2="189" y2="49">
+              <stop offset="0" stop-color="#ff5f6d"/><stop offset="0.25" stop-color="#ffc371"/>
+              <stop offset="0.5" stop-color="#7bed9f"/><stop offset="0.75" stop-color="#70a1ff"/>
+              <stop offset="1" stop-color="#b983ff"/>
+            </linearGradient>
+          </defs>
+          <g fill="hsl(14,65%,55%)"><rect x="0" y="0" width="9" height="9" rx="1.5"/><rect x="10" y="0" width="9" height="9" rx="1.5"/><rect x="20" y="0" width="9" height="9" rx="1.5"/><rect x="10" y="10" width="9" height="9" rx="1.5"/><rect x="10" y="20" width="9" height="9" rx="1.5"/><rect x="10" y="30" width="9" height="9" rx="1.5"/><rect x="10" y="40" width="9" height="9" rx="1.5"/></g>
+          <g fill="hsl(210,65%,55%)"><rect x="40" y="0" width="9" height="9" rx="1.5"/><rect x="50" y="0" width="9" height="9" rx="1.5"/><rect x="60" y="0" width="9" height="9" rx="1.5"/><rect x="40" y="10" width="9" height="9" rx="1.5"/><rect x="40" y="20" width="9" height="9" rx="1.5"/><rect x="50" y="20" width="9" height="9" rx="1.5"/><rect x="40" y="30" width="9" height="9" rx="1.5"/><rect x="40" y="40" width="9" height="9" rx="1.5"/><rect x="50" y="40" width="9" height="9" rx="1.5"/><rect x="60" y="40" width="9" height="9" rx="1.5"/></g>
+          <g fill="hsl(145,65%,45%)"><rect x="80" y="0" width="9" height="9" rx="1.5"/><rect x="90" y="0" width="9" height="9" rx="1.5"/><rect x="100" y="0" width="9" height="9" rx="1.5"/><rect x="90" y="10" width="9" height="9" rx="1.5"/><rect x="90" y="20" width="9" height="9" rx="1.5"/><rect x="90" y="30" width="9" height="9" rx="1.5"/><rect x="90" y="40" width="9" height="9" rx="1.5"/></g>
+          <g fill="hsl(285,65%,60%)"><rect x="120" y="0" width="9" height="9" rx="1.5"/><rect x="130" y="0" width="9" height="9" rx="1.5"/><rect x="120" y="10" width="9" height="9" rx="1.5"/><rect x="140" y="10" width="9" height="9" rx="1.5"/><rect x="120" y="20" width="9" height="9" rx="1.5"/><rect x="130" y="20" width="9" height="9" rx="1.5"/><rect x="120" y="30" width="9" height="9" rx="1.5"/><rect x="140" y="30" width="9" height="9" rx="1.5"/><rect x="120" y="40" width="9" height="9" rx="1.5"/><rect x="140" y="40" width="9" height="9" rx="1.5"/></g>
+          <g fill="url(#rb)"><rect x="170" y="0" width="9" height="9" rx="1.5"/><rect x="160" y="10" width="9" height="9" rx="1.5"/><rect x="180" y="10" width="9" height="9" rx="1.5"/><rect x="160" y="20" width="9" height="9" rx="1.5"/><rect x="170" y="20" width="9" height="9" rx="1.5"/><rect x="180" y="20" width="9" height="9" rx="1.5"/><rect x="160" y="30" width="9" height="9" rx="1.5"/><rect x="180" y="30" width="9" height="9" rx="1.5"/><rect x="160" y="40" width="9" height="9" rx="1.5"/><rect x="180" y="40" width="9" height="9" rx="1.5"/></g>
+        </svg>
+      </h1>
+      <p class="tagline">Claim the board. 2–4 players, one 11×11 grid.</p>
+    </header>
     <div class="menu-card">
       <h2>Play online</h2>
       <label class="field">Nickname
@@ -24,13 +47,12 @@
       <p class="menu-note" id="onlineNote"></p>
     </div>
     <div class="menu-card">
-      <h2>Play on this screen</h2>
-      <div class="mode-row">
-        <span class="label">Players:</span>
-        <label class="toggle"><input type="radio" name="localPlayers" value="4" checked> 4</label>
-        <label class="toggle"><input type="radio" name="localPlayers" value="2"> 2 <span class="menu-note">(South vs North)</span></label>
+      <h2>Play on this device</h2>
+      <div class="segmented" role="radiogroup" aria-label="Players">
+        <label><input type="radio" name="localPlayers" value="4" checked><span>4 players</span></label>
+        <label><input type="radio" name="localPlayers" value="2"><span>2 players <small>South vs North</small></span></label>
       </div>
-      <button id="vsBotsRealtimeBtn" type="button">Play vs 3 easy bots — real-time</button>
+      <button id="vsBotsRealtimeBtn" type="button" class="primary">Play vs 3 easy bots — real-time</button>
       <button id="vsBotsBtn" type="button">Play vs 3 easy bots — turn-based</button>
       <button id="hotseatBtn" type="button">Local hot-seat (4 players, 1 screen)</button>
     </div>
