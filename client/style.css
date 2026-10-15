@@ -550,3 +550,8 @@ body { touch-action: manipulation; }
     gap: 0.5px;
   }
 }
+
+/* Menu pages */
+.menu-card button small { display: block; font-weight: 400; font-size: 11px; opacity: 0.75; }
+.menu-card .back-btn { background: transparent; }
+.menu-card input[type="range"] { width: 100%; padding: 0; }

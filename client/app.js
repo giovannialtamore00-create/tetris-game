@@ -103,9 +103,12 @@
   // context is created (or resumed) on the first click or key press.
 
   const MUTE_KEY = 'tetris.muted';
+  const VOLUME_KEY = 'tetris.volume';
   const sound = (() => {
     let ctx = null;
     let muted = storage.get(MUTE_KEY) === true;
+    let volume = storage.get(VOLUME_KEY);
+    if (typeof volume !== 'number') volume = 1;
 
     function context() {
       if (!ctx) {
@@ -117,13 +120,13 @@
       return ctx;
     }
 
-    function tone(ac, freq, start, duration, type, volume) {
+    function tone(ac, freq, start, duration, type, volume, level) {
       const osc = ac.createOscillator();
       const gain = ac.createGain();
       osc.type = type;
       osc.frequency.setValueAtTime(freq, start);
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(Math.max(volume * level, 0.0002), start + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
       osc.connect(gain).connect(ac.destination);
       osc.start(start);
@@ -133,6 +136,13 @@
     return {
       get muted() {
         return muted;
+      },
+      get volume() {
+        return volume;
+      },
+      setVolume(v) {
+        volume = v;
+        storage.set(VOLUME_KEY, v);
       },
       unlock() {
         if (!muted) context();
@@ -145,14 +155,14 @@
       // A low thump plus a rising C-major arpeggio; clearing several lines at
       // once extends the arpeggio an octave higher.
       lineClear(lineCount) {
-        if (muted) return;
+        if (muted || volume === 0) return;
         const ac = context();
         if (!ac) return;
         const t = ac.currentTime + 0.01;
         const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
         if (lineCount >= 2) notes.push(1318.51, 1567.98, 2093.0); // E6 G6 C7
-        tone(ac, 130.81, t, 0.3, 'sine', 0.3);
-        notes.forEach((freq, k) => tone(ac, freq, t + k * 0.06, 0.4, 'triangle', 0.16));
+        tone(ac, 130.81, t, 0.3, 'sine', 0.3, volume);
+        notes.forEach((freq, k) => tone(ac, freq, t + k * 0.06, 0.4, 'triangle', 0.16, volume));
       },
     };
   })();
@@ -193,7 +203,7 @@
   }
 
   function showScreen(name) {
-    for (const screen of ['menu', 'lobby', 'game']) $(`${screen}Screen`).hidden = screen !== name;
+    for (const screen of ['menu', 'play', 'options', 'friends', 'lobby', 'game']) $(`${screen}Screen`).hidden = screen !== name;
     if (name !== 'game') el.overlay.hidden = true;
     document.body.classList.toggle('in-game', name === 'game');
   }
@@ -252,7 +262,7 @@
 
   const HUMAN_SEAT = 0; // against bots you always play South
 
-  function createLocalController({ bots = false, mode = C.TURNS, playerCount = 4 } = {}) {
+  function createLocalController({ bots = false, mode = C.TURNS, playerCount = 4, botSlowdown = 1 } = {}) {
     // Against bots you play South and the bots take the other seats in play (§26).
     const botSeats = bots ? C.activeSeatsFor(playerCount).filter((k) => k !== HUMAN_SEAT) : [];
     const vsBots = botSeats.length > 0;
@@ -306,7 +316,7 @@
       }
       if (s.phase !== 'turn' || s.turnStartedAt === null || !isBotSeat(s.activeSeat)) return;
       if (!botPlan || botPlan.turnStartedAt !== s.turnStartedAt) {
-        botPlan = { turnStartedAt: s.turnStartedAt, at: s.turnStartedAt + bot.botThinkMs() };
+        botPlan = { turnStartedAt: s.turnStartedAt, at: s.turnStartedAt + bot.botThinkMs() * botSlowdown };
       }
       if (t < botPlan.at) return;
       const seat = s.activeSeat;
@@ -322,7 +332,7 @@
         if (p.status !== C.ALIVE) continue;
         let plan = realtimePlans[seat];
         if (!plan || plan.readyAt !== p.cooldownUntil) {
-          plan = { readyAt: p.cooldownUntil, at: Math.max(t, p.cooldownUntil) + bot.botThinkMs() };
+          plan = { readyAt: p.cooldownUntil, at: Math.max(t, p.cooldownUntil) + bot.botThinkMs() * botSlowdown };
           realtimePlans[seat] = plan;
         }
         if (t < plan.at) continue;
@@ -738,7 +748,7 @@
       el.onlineNote.textContent = '';
     }
     el.menuError.textContent = error;
-    showScreen('menu');
+    showScreen(error ? 'friends' : 'menu');
   }
 
   function nickname() {
@@ -1559,30 +1569,27 @@
 
   // --- Wiring ---------------------------------------------------------------------
 
-  // Local games: the menu's 2 / 4 players choice (§26) also relabels the buttons.
-  const localPlayers = () => Number(document.querySelector('input[name="localPlayers"]:checked').value);
-  function relabelLocalButtons() {
-    const n = localPlayers();
-    const bots = n === 2 ? '1 easy bot' : '3 easy bots';
-    $('vsBotsBtn').textContent = `Play vs ${bots} — turn-based`;
-    $('vsBotsRealtimeBtn').textContent = `Play vs ${bots} — real-time`;
-    $('hotseatBtn').textContent = `Local hot-seat (${n} players, 1 screen)`;
+  // Menu pages. Every bot game is real-time with you as South; turn-based
+  // play is only in a friends' room.
+  function startBotGame({ playerCount, slow = false }) {
+    ctl = createLocalController({ bots: true, mode: C.REALTIME, playerCount, botSlowdown: slow ? 1.5 : 1 });
+    ctl.start();
   }
-  for (const radio of document.querySelectorAll('input[name="localPlayers"]')) {
-    radio.addEventListener('change', relabelLocalButtons);
-  }
-
-  $('hotseatBtn').addEventListener('click', () => {
-    ctl = createLocalController({ playerCount: localPlayers() });
-    ctl.start();
-  });
-  $('vsBotsBtn').addEventListener('click', () => {
-    ctl = createLocalController({ bots: true, playerCount: localPlayers() });
-    ctl.start();
-  });
-  $('vsBotsRealtimeBtn').addEventListener('click', () => {
-    ctl = createLocalController({ bots: true, mode: C.REALTIME, playerCount: localPlayers() });
-    ctl.start();
+  $('playBtn').addEventListener('click', () => showScreen('play'));
+  $('optionsBtn').addEventListener('click', () => showScreen('options'));
+  $('rulesBtn').addEventListener('click', () => setRulesOpen(true));
+  $('friendsBtn').addEventListener('click', () => showScreen('friends'));
+  for (const b of document.querySelectorAll('.back-btn')) b.addEventListener('click', () => showScreen(b.dataset.back));
+  $('freePlayBtn').addEventListener('click', () => startBotGame({ playerCount: 4 }));
+  $('rankedBtn').addEventListener('click', () => startBotGame({ playerCount: 4 })); // no ranking yet: plays like Free Play
+  $('ranked1v1Btn').addEventListener('click', () => startBotGame({ playerCount: 2 }));
+  $('practiceBtn').addEventListener('click', () => startBotGame({ playerCount: 2, slow: true }));
+  $('volumeInput').value = Math.round(sound.volume * 100);
+  const showVolume = () => ($('volumeValue').textContent = `${Math.round(sound.volume * 100)}%`);
+  showVolume();
+  $('volumeInput').addEventListener('input', (e) => {
+    sound.setVolume(Number(e.target.value) / 100);
+    showVolume();
   });
   $('addBotBtn').addEventListener('click', () => ctl && ctl.mode === 'online' && ctl.addBot());
   $('createBtn').addEventListener('click', () => {
@@ -1673,12 +1680,12 @@
     if (saved && saved.code && saved.token && (!invitedCode || invitedCode === saved.code)) {
       // Reclaim our seat after a refresh or a dropped connection.
       el.menuError.textContent = '';
-      showScreen('menu');
+      showScreen('friends');
       el.onlineNote.textContent = `Reconnecting to room ${saved.code}…`;
       ctl = createOnlineController();
       ctl.resume(saved);
     } else {
-      showScreen('menu');
+      showScreen(invitedCode ? 'friends' : 'menu');
       if (invitedCode) el.onlineNote.textContent = `You were invited to room ${invitedCode}: enter a nickname and press Join.`;
     }
   }

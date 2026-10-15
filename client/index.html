@@ -34,7 +34,40 @@
       <p class="tagline">Claim the board. 2–4 players, one 11×11 grid.</p>
     </header>
     <div class="menu-card">
-      <h2>Play online</h2>
+      <button id="playBtn" type="button" class="primary">Play</button>
+      <button id="optionsBtn" type="button">Options</button>
+      <button id="rulesBtn" type="button">Rules</button>
+    </div>
+  </section>
+
+  <!-- Play: pick a mode -->
+  <section class="screen menu" id="playScreen" hidden>
+    <div class="menu-card">
+      <h2>Play</h2>
+      <button id="freePlayBtn" type="button" class="primary">Free Play <small>4 players, you vs 3 bots</small></button>
+      <button id="rankedBtn" type="button">Ranked <small>4 players, you vs 3 bots</small></button>
+      <button id="ranked1v1Btn" type="button">Ranked 1v1 <small>you vs 1 bot</small></button>
+      <button id="practiceBtn" type="button">Practice <small>you vs 1 slower bot</small></button>
+      <button id="friendsBtn" type="button">Play with friends <small>room and code</small></button>
+      <button class="back-btn" data-back="menu" type="button">Back</button>
+    </div>
+  </section>
+
+  <!-- Options -->
+  <section class="screen menu" id="optionsScreen" hidden>
+    <div class="menu-card">
+      <h2>Options</h2>
+      <label class="field">Sound volume <output id="volumeValue"></output>
+        <input id="volumeInput" type="range" min="0" max="100" step="5" aria-label="Sound volume">
+      </label>
+      <button class="back-btn" data-back="menu" type="button">Back</button>
+    </div>
+  </section>
+
+  <!-- Play with friends: create or join a room -->
+  <section class="screen menu" id="friendsScreen" hidden>
+    <div class="menu-card">
+      <h2>Play with friends</h2>
       <label class="field">Nickname
         <input id="nicknameInput" maxlength="16" autocomplete="nickname" placeholder="Your name">
       </label>
@@ -45,16 +78,7 @@
       </div>
       <p class="menu-error" id="menuError" role="alert"></p>
       <p class="menu-note" id="onlineNote"></p>
-    </div>
-    <div class="menu-card">
-      <h2>Play on this device</h2>
-      <div class="segmented" role="radiogroup" aria-label="Players">
-        <label><input type="radio" name="localPlayers" value="4" checked><span>4 players</span></label>
-        <label><input type="radio" name="localPlayers" value="2"><span>2 players <small>South vs North</small></span></label>
-      </div>
-      <button id="vsBotsRealtimeBtn" type="button" class="primary">Play vs 3 easy bots — real-time</button>
-      <button id="vsBotsBtn" type="button">Play vs 3 easy bots — turn-based</button>
-      <button id="hotseatBtn" type="button">Local hot-seat (4 players, 1 screen)</button>
+      <button class="back-btn" data-back="play" type="button">Back</button>
     </div>
   </section>
 
