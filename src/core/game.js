@@ -405,8 +405,11 @@ function resolvePlacement(s, seat, { piece, rotation, x, y, cells, rainbow = fal
       if (s.hp[i] === 0) {
         s.owner[i] = EMPTY;
         s.root[i] = false; // a destroyed starting piece is gone for good
-        const points = formerOwner === seat ? 2 : 1;
-        award(seat, points);
+        // Mover +1 per block; the block's owner also gets +1 (so your own = 2).
+        const hasOwner = formerOwner >= 0 && (formerOwner === seat || statusOf(formerOwner) === ALIVE);
+        award(seat, 1);
+        if (hasOwner) award(formerOwner, 1);
+        const points = hasOwner && formerOwner === seat ? 2 : 1;
         destroyed.push({ cell: i, owner: formerOwner, points });
       }
     }

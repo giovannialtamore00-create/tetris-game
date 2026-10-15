@@ -59,8 +59,8 @@ function playRowFive(overrides = {}) {
 describe('scoring', () => {
   it('scores a line clear, own-block destruction and detonation together', () => {
     const { state } = playRowFive();
-    // 4 West + 2 own + 4 East + 3 detonated.
-    assert.deepEqual(scores(state), [13, 0, 0, 0]);
+    // South: 4 West + 2 own + 4 East + 3 detonated; West and East get 1 per own block destroyed.
+    assert.deepEqual(scores(state), [13, 4, 0, 4]);
   });
 
   it('pays 2 points for the mover\'s own block destroyed by a line hit', () => {
@@ -96,7 +96,7 @@ describe('scoring', () => {
     const [converted] = ofType(events, 'converted');
     assert.equal(converted.to, NORTH);
     assert.equal(converted.points, 3);
-    assert.deepEqual(scores(state), [10, 0, 3, 0]);
+    assert.deepEqual(scores(state), [10, 4, 3, 4]);
   });
 
   it('pays nothing to a timed-out player who adopts a cluster', () => {
@@ -108,7 +108,7 @@ describe('scoring', () => {
     const [converted] = ofType(events, 'converted');
     assert.equal(converted.points, 0);
     assert.equal(state.owner[at(3, 5)], NORTH);
-    assert.deepEqual(scores(state), [10, 0, 0, 0]);
+    assert.deepEqual(scores(state), [10, 4, 0, 4]);
   });
 
   it('pays 1 point for destroying dulled blocks, eliminates a player left with none, and ends the game', () => {
@@ -118,8 +118,8 @@ describe('scoring', () => {
       hpRows,
       statuses: { [NORTH]: TIMED_OUT, [EAST]: TIMED_OUT },
     });
-    // 5 West + 2 own + 4 dulled East + 3 detonated.
-    assert.deepEqual(scores(state), [14, 0, 0, 0]);
+    // 5 West + 2 own + 4 dulled East + 3 detonated; West +5, dulled East (not alive) +0.
+    assert.deepEqual(scores(state), [14, 5, 0, 0]);
     assert.equal(state.players[WEST].status, ELIMINATED);
     assert.deepEqual(ofType(events, 'eliminated').map((e) => e.seat), [WEST]);
     assert.equal(state.over, true);

@@ -113,8 +113,8 @@ A timeout changes nothing on the board, so it never changes a cluster's touching
 All points go to the player who made the move, except conversion points, which go to the adopting player.
 
 | Event | Scores | Points per block |
-|---|---|---|
-| A line hit destroys a block the mover owns at that instant | mover | **2** |
+| A line hit destroys a block | mover | 1 |
+| ...and that block belongs to a living player (the mover too) | the block's owner | +1 (destroying your own block = **2**) |
 | A line hit destroys any other block (another player's, dulled, or grey) | mover | 1 |
 | A cluster detonates (0 touching colours) | mover | 1, whoever the blocks used to belong to |
 | A cluster converts (exactly 1 touching colour) | the adopting player, if alive | 1 |
@@ -320,7 +320,7 @@ Tests use hand-built boards and a fake clock. After every step of every test, th
 - **Roots**: *a block placed later on the player's own edge, cut off from the starting pieces, detonates*; a destroyed starting piece's cell is not a root when refilled.
 - **Resolution**: each of the 0 / 1 / 2+ outcomes; conversion to a timed-out player (dulled, no points); a dulled region breaking off; *fresh orphan merges with adjacent grey cluster before counting colours*; *same orphan without the grey neighbour detonates*; *merged cluster counts touching colours from both parts*; a grey cluster re-evaluated after a remote move removes one of its colours.
 - **Pieces**: all 10 shapes and their rotations; the bag deals each tetromino once per cycle and never a special piece; starting hands contain no special pieces; special picks leave the bag untouched; a 1×1 fills a one-cell hole no tetromino fits; small pieces must touch an own block; a shuffle deals 3 bag pieces plus 1 special; a line clear refills the played slot with a special piece, and a move without one refills from the bag.
-- **Lines and scoring**: 2 hits at a crossing; 2 points for the mover's own block destroyed by a line; no points for HP-only hits; frozen scores for players who are not alive.
+- **Lines and scoring**: 2 hits at a crossing; a line-destroyed block pays the mover 1 and its living owner 1 (own block = 2); no points for HP-only hits; frozen scores for players who are not alive.
 - **Turns and clocks**: AFK pass versus personal-clock timeout and their precedence; bonus capping; +2 s per completed line (+4 s for a row and column together), within the cap; cap decay; forced pass and +5 s.
 - **Shuffle**: offer persists across stuck turns and AFK passes; offer cleared on a legal move; one use per offer, with a fresh offer on the next forced pass.
 - **Stuck table**: an all-pass round still awards passive points and decays caps; the shuffle window pauses personal clocks and closes early when everyone has shuffled; consecutive all-stuck rounds are paced by the window, never looped instantly.
