@@ -255,7 +255,35 @@
       if (e.type === 'detonated' || e.type === 'converted' || e.type === 'greyed') flashCells.push(...e.cells);
     }
     if (flashCells.length > 0) flash(flashCells);
+    if (cleared) pulseBoard();
+    commentate(events);
     render();
+  }
+
+  // Line clear: the board's edge glows once.
+  function pulseBoard() {
+    el.board.classList.remove('pulse');
+    void el.board.offsetWidth; // restart the animation
+    el.board.classList.add('pulse');
+  }
+
+  // Commentary words beside the board for the big moments of a move.
+  const NEUTRAL_HUE = 45;
+  function commentate(events) {
+    if (!window.TetraFx) return;
+    const placed = events.find((e) => e.type === 'placed');
+    const actorHue = placed ? HUES[placed.seat] : NEUTRAL_HUE;
+    const say = (text, hue = actorHue) => window.TetraFx.comment(text, hue);
+    for (const e of events) {
+      if (e.type === 'linesCompleted' && e.lines.length >= 2) {
+        say(e.lines.length === 2 ? 'Double row!' : e.lines.length === 3 ? 'Triple row!' : 'Mega clear!');
+      } else if (e.type === 'converted' && e.cells.length >= 7) say('What a steal!', HUES[e.to]);
+      else if (e.type === 'detonated' && e.cells.length >= 5) say('Boom!', HUES[e.scorer]);
+      else if (e.type === 'rewardPiece' && e.reason === 'perfectFit') say('Perfect fit!', HUES[e.seat]);
+      else if (e.type === 'eliminated') say('Elimination!', HUES[e.seat]);
+      else if (e.type === 'timedOut') say('Time out!', HUES[e.seat]);
+      else if (e.type === 'clockHalved') say('Clock halved!', NEUTRAL_HUE);
+    }
   }
 
   // --- Local controller: hot-seat, or you against easy bots --------------------
@@ -1242,6 +1270,8 @@
     const s = ui.state;
     const live = liveSeat();
     const controlled = ctl.controlledSeat();
+    const absent = (side) => s.players[seatAt(side)].status === C.ABSENT;
+    el.board.parentElement.classList.toggle('no-sides', absent('left') && absent('right'));
     for (const side of ['bottom', 'left', 'top', 'right']) {
       const p = s.players[seatAt(side)];
       const hue = HUES[p.seat];
@@ -1250,9 +1280,8 @@
       const card = el.panels[side];
       card.innerHTML = '';
       if (p.status === C.ABSENT) {
-        card.className = `seat-panel ${side} out empty-side`;
-        card.style.setProperty('--hue', 0);
-        card.appendChild(span('player-seat', `${SEATS[p.seat].name}: empty side`));
+        // Empty sides are hidden; the table closes up around the board.
+        card.className = `seat-panel ${side} empty-side`;
         timerEls[p.seat] = null;
         continue;
       }
@@ -1262,19 +1291,15 @@
       const head = document.createElement('div');
       head.className = 'player-head';
       const name = span('player-name', ctl.seatLabel(p.seat));
-      if (ctl.fixedViewSeat() !== null) {
-        const tags = [SEATS[p.seat].name];
-        if (ctl.isBotSeat(p.seat)) tags.push('bot');
-        if (p.seat === ctl.fixedViewSeat()) tags.push('you');
-        name.appendChild(span('player-seat', tags.join(' · ')));
-        if (!ctl.seatConnected(p.seat)) name.appendChild(span('player-flag', 'offline'));
+      if (ctl.fixedViewSeat() !== null && !ctl.seatConnected(p.seat)) {
+        name.appendChild(span('player-flag', 'offline'));
       }
       head.append(name, span('player-score', String(p.score)));
 
       const meta = document.createElement('div');
       meta.className = 'player-meta';
       const clock = span('player-clock', '');
-      meta.append(span('', `${STATUS_TEXT[p.status]} · ${B.countBlocks(s.owner, p.seat)} blocks`), clock);
+      meta.append(clock);
 
       const afk = document.createElement('div');
       afk.className = `afk-bar${isActive ? '' : ' hidden'}`;
@@ -1372,7 +1397,7 @@
     let status;
     if (s.over) status = 'Game over';
     else if (realtime) {
-      status = 'Real-time · place whenever you are ready';
+      status = '';
       renderHint(); // the hint follows the cooldown, which changes without a new state
     } else if (s.phase === 'shuffleWindow') {
       status = `Everyone is stuck — shuffle window ${fmtSeconds(s.shuffleWindowEndsAt - t)} s`;
@@ -1389,12 +1414,18 @@
       status = `Paused by ${ctl.seatLabel(s.pausedBy)} — only they or the host can resume`;
     }
     el.status.textContent = status;
-    el.pauseBtn.textContent = ctl.paused ? 'Resume' : 'Pause';
+    setLabel(el.pauseBtn, ctl.paused ? 'Resume' : 'Pause');
     el.pauseBtn.disabled = s.over || (ctl.mode === 'online' && ctl.paused && !ctl.canUnpause());
     el.pauseBtn.title = ctl.mode === 'online'
       ? 'Pause the game for everyone (P). Only you or the host can resume it.'
       : 'Freeze all clocks (P)';
-    el.soundBtn.textContent = sound.muted ? 'Sound: off' : 'Sound: on';
+    setLabel(el.soundBtn, sound.muted ? 'Sound off' : 'Sound on');
+  }
+
+  // Button labels are drawn in block letters by menu-fx.js; plain text if it is missing.
+  function setLabel(btn, text) {
+    if (window.TetraFx) window.TetraFx.blockText(btn, text);
+    else btn.textContent = text;
   }
 
   const PLACE_HINT = window.matchMedia('(pointer: coarse)').matches
@@ -1525,7 +1556,7 @@
     if (!ui.state || !ctl) return;
     el.newGameBtn.hidden = ctl.mode !== 'local';
     el.logBtn.hidden = !ui.state.over;
-    el.logBtn.textContent = ui.logOpen ? 'Hide log' : 'Show log';
+    setLabel(el.logBtn, ui.logOpen ? 'Hide log' : 'Show log');
     el.logPanel.hidden = !(ui.state.over && ui.logOpen);
     renderBoard();
     renderPanels();
@@ -1533,6 +1564,7 @@
     renderOverlay();
     renderHistoryBar();
     renderTimers(ctl.now());
+    if (window.TetraFx) window.TetraFx.fit();
   }
 
   // Every 100 ms: let the controller advance time (local mode applies expired
@@ -1632,9 +1664,9 @@
   // Rulebook drawer, reachable from every screen.
   function setRulesOpen(open) {
     $('rulesDrawer').hidden = !open;
-    $('rulesTab').setAttribute('aria-expanded', String(open));
+    $('gameRulesBtn').setAttribute('aria-expanded', String(open));
   }
-  $('rulesTab').addEventListener('click', () => setRulesOpen($('rulesDrawer').hidden));
+  $('gameRulesBtn').addEventListener('click', () => setRulesOpen($('rulesDrawer').hidden));
   $('rulesClose').addEventListener('click', () => setRulesOpen(false));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('rulesDrawer').hidden) setRulesOpen(false);

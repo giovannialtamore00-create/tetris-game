@@ -36,6 +36,7 @@
     2: ['###.', '...#', '.##.', '#...', '####'],
     3: ['###.', '...#', '.##.', '...#', '###.'],
     4: ['#..#', '#..#', '####', '...#', '...#'],
+    '!': ['#', '#', '#', '.', '#'],
   };
   const SVG = 'http://www.w3.org/2000/svg';
 
@@ -55,25 +56,71 @@
     return svg;
   }
 
-  // Replace one text node with block letters, one word per unbreakable group.
-  function blockify(node) {
-    const words = node.textContent.trim().toUpperCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return;
+  // Text as block letters, one word per unbreakable group.
+  function blockWords(text) {
     const frag = document.createDocumentFragment();
-    for (const word of words) {
+    for (const word of text.trim().toUpperCase().split(/\s+/).filter(Boolean)) {
       const group = document.createElement('span');
       group.className = 'bw';
       for (const ch of word) group.appendChild(GLYPHS[ch] ? blockLetter(ch) : document.createTextNode(ch));
       frag.appendChild(group);
     }
-    node.replaceWith(frag);
+    return frag;
   }
 
-  for (const btn of document.querySelectorAll('.menu-card button')) {
+  // Set a button's whole label in block letters (skipped when unchanged).
+  function blockText(btn, text) {
+    if (btn.dataset.label === text) return;
+    btn.dataset.label = text;
+    btn.setAttribute('aria-label', text);
+    btn.replaceChildren(blockWords(text));
+  }
+
+  for (const btn of document.querySelectorAll('.menu-card button, .topbar .controls button')) {
     btn.setAttribute('aria-label', btn.textContent.replace(/\s+/g, ' ').trim());
     const host = btn.querySelector(':scope > span') || btn;
-    for (const n of [...host.childNodes]) if (n.nodeType === Node.TEXT_NODE) blockify(n);
+    for (const n of [...host.childNodes]) {
+      if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.replaceWith(blockWords(n.textContent));
+    }
   }
+
+  // ---- Commentary: big block words beside the board, alternating sides ----
+  const slots = [document.getElementById('commentLeft'), document.getElementById('commentRight')];
+  let nextSlot = 0;
+  function comment(text, hue) {
+    const slot = slots[nextSlot];
+    nextSlot = 1 - nextSlot;
+    if (!slot) return;
+    const word = document.createElement('div');
+    word.className = 'comment';
+    word.style.setProperty('--hue', Number.isFinite(hue) ? hue : 45);
+    word.setAttribute('role', 'status');
+    word.setAttribute('aria-label', text);
+    word.appendChild(blockWords(text));
+    slot.replaceChildren(word);
+    word.addEventListener('animationend', () => word.remove());
+  }
+
+
+  // ---- Fit: the match is laid out at a natural size, then scaled to the window ----
+  const layout = document.querySelector('.layout');
+  const MIN_SCALE = 0.2, MAX_SCALE = 1.45, SIDE_W = 340;
+  function fit() {
+    const game = document.getElementById('gameScreen');
+    if (!layout || !game || game.hidden) return;
+    if (innerWidth <= 600) { layout.style.zoom = ''; return; } // phones have their own layout
+    layout.style.zoom = '1';
+    const area = layout.querySelector('.table-area');
+    const sides = innerWidth > 1100 ? 2 * SIDE_W : 0; // controls panel and commentary columns
+    const needW = area.offsetWidth + sides + 32;
+    const needH = layout.offsetHeight;
+    const topH = document.querySelector('.topbar').offsetHeight;
+    const s = Math.min(MAX_SCALE, (innerHeight - topH) / needH, innerWidth / needW);
+    layout.style.zoom = String(Math.max(MIN_SCALE, Math.floor(s * 1000) / 1000));
+  }
+  addEventListener('resize', fit);
+  addEventListener('load', fit);
+  window.TetraFx = { blockText, comment, fit };
 
   // ---- Backdrop: tetrominoes in player colours fading in and out ----
   const canvas = document.getElementById('backdrop');
@@ -137,7 +184,7 @@
 
   function frame(now) {
     requestAnimationFrame(frame);
-    if (document.body.classList.contains('in-game') || now - last < 33) return; // ~30 fps, idle in game
+    if (now - last < 33) return; // ~30 fps
     last = now;
     pieces = pieces.filter((p) => now - p.born < p.life);
     if (now >= spawnAt && pieces.length < MAX_PIECES) {

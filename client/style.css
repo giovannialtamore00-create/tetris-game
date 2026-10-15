@@ -139,19 +139,7 @@ kbd {
 .history-label { min-width: 220px; text-align: center; color: var(--muted); font-size: 13px; }
 .history-label.viewing { color: hsl(45, 80%, 65%); }
 
-/* Rulebook tab and drawer */
-.rules-tab {
-  position: fixed;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  writing-mode: vertical-rl;
-  rotate: 180deg;
-  border-radius: 0 8px 8px 0;
-  padding: 12px 6px;
-  z-index: 20;
-  background: var(--panel);
-}
+/* Rulebook drawer */
 .rules-drawer {
   position: fixed;
   left: 0;
@@ -190,8 +178,9 @@ kbd {
 .seat-panel.left { grid-area: left; border-right: 4px solid hsl(var(--hue), 60%, 50%); }
 .seat-panel.right { grid-area: right; border-left: 4px solid hsl(var(--hue), 60%, 50%); }
 .seat-panel.bottom { grid-area: bottom; border-top: 4px solid hsl(var(--hue), 60%, 50%); }
-.seat-panel.left .hand, .seat-panel.right .hand { grid-template-columns: repeat(2, 1fr); }
-.seat-panel.active { box-shadow: 0 0 0 2px hsl(var(--hue), 70%, 60%); }
+.seat-panel.left .hand, .seat-panel.right .hand { grid-template-columns: 1fr; }
+.seat-panel.active { box-shadow: 0 0 0 2px hsl(var(--hue), 70%, 60%), 0 12px 32px -10px hsl(var(--hue) 70% 50% / 0.55); }
+.seat-panel.empty-side { display: none; }
 .seat-panel.out { opacity: 0.6; }
 .player-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .player-name { font-weight: 600; }
@@ -293,7 +282,8 @@ body:not(.in-game) {
   background: radial-gradient(ellipse at 50% 30%, #1b1e26, #0b0c10 70%);
   font-family: "Chakra Petch", system-ui, sans-serif;
 }
-body.in-game .cabinet, body.in-game .backdrop { display: none; }
+body.in-game .cabinet { display: none; }
+body.in-game .backdrop { opacity: 0.5; }
 /* Animated backdrop (backdrop.js): tetrominoes fading in and out. */
 .backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
 /* The cabinet fills the window height; its width follows. */
@@ -435,10 +425,14 @@ body.in-game .cabinet, body.in-game .backdrop { display: none; }
 .bl { display: block; height: 0.95em; width: auto; flex: none; fill: color-mix(in srgb, var(--blk, var(--text)) 55%, #c9ced9); transition: fill 0.18s; }
 .menu-card > button:hover .bl,
 .menu-card > button:focus-visible .bl,
-.menu-card > button.primary .bl { fill: var(--blk); }
-.menu-card > button.primary { background: color-mix(in srgb, var(--blk) 22%, transparent); border-color: color-mix(in srgb, var(--blk) 60%, transparent); }
-.menu-card > button.primary > span { font-weight: 600; }
+.menu-card > button.primary:not(:hover):not(:focus-visible) { background: transparent; border-color: transparent; }
 .menu-card > .back-btn { justify-content: center; color: var(--muted); margin-top: 4px; }
+/* Main menu: a big centred Play, with Options and Rules smaller side by side underneath. */
+#menuScreen .menu-card { display: grid; grid-template-columns: 1fr 1fr; }
+#menuScreen .menu-card > button { justify-content: center; }
+#menuScreen .menu-card > button > span { flex: none; }
+#playBtn { grid-column: 1 / -1; font-size: clamp(30px, 9cqi, 72px); padding: 3cqi; }
+#optionsBtn, #rulesBtn { font-size: clamp(12px, 2.6cqi, 20px); margin-top: 1cqi; }
 ::selection { background: hsl(var(--west), 60%, 40%); color: #fff; }
 .menu-card .lobby-seats .remove-bot { min-height: 0; font-size: 12px; }
 /* 2 / 4 players switch. */
@@ -545,7 +539,6 @@ button.primary { background: hsl(210, 60%, 38%); border-color: hsl(210, 60%, 48%
 .player-flag { font-size: 11px; color: #ff8a65; margin-left: 4px; }
 
 /* §26: a side nobody sits on in a 2-player game */
-.seat-panel.empty-side { text-align: center; padding: 10px; }
 
 /* Touch: the ⟳ button beside your hand, and no scrolling or zooming while a
    piece is dragged from the hand onto the board. */
@@ -574,7 +567,7 @@ body { touch-action: manipulation; }
    pieces, scores, clocks and the cooldown badge are shown. */
 @media (max-width: 600px) {
   body.in-game { height: 100dvh; overflow: hidden; touch-action: none; }
-  body.in-game .rules-tab,
+  .controls-card,
   .status, #logBtn, .history-bar, .hint, .help, .log-panel, #overlayLog,
   .player-meta > span:first-child, .seat-panel .player-seat { display: none; }
   #gameScreen:not([hidden]) { height: 100dvh; display: flex; flex-direction: column; }
@@ -674,3 +667,162 @@ body { touch-action: manipulation; }
 .menu-card button small { display: block; margin-top: 0.4em; font-weight: 400; font-size: 0.6em; opacity: 0.75; }
 .menu-card .back-btn { background: transparent; }
 .menu-card input[type="range"] { width: 100%; padding: 0; }
+
+/* ---- Match screen: arcade top bar, controls panel, commentary ---- */
+.topbar {
+  background: linear-gradient(#181a22, #101117);
+  border-bottom: 3px solid #07080a;
+  font-family: "Chakra Petch", system-ui, sans-serif;
+}
+.game-clock { font: 400 26px/1 "Silkscreen", ui-monospace, monospace; letter-spacing: 0.04em; }
+.topbar .controls { --blk: hsl(45, 85%, 62%); }
+.topbar .controls button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 15px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  transition: background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.topbar .controls button:hover:not(:disabled),
+.topbar .controls button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--blk) 12%, transparent);
+  border-color: color-mix(in srgb, var(--blk) 60%, transparent);
+}
+.topbar .controls button:hover .bl,
+.topbar .controls button:focus-visible .bl { fill: var(--blk); }
+.topbar .controls button[hidden] { display: none; }
+
+/* Line clear: the board's edge glows once. */
+.board.pulse { animation: board-pulse 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes board-pulse {
+  from { box-shadow: 0 0 0 3px hsl(45 90% 70% / 0.8), 0 12px 48px -6px hsl(45 90% 60% / 0.55); }
+  to { box-shadow: 0 0 0 0 transparent, 0 12px 48px -6px transparent; }
+}
+
+/* Side columns: commentary on the left; controls, commentary and log on the right. */
+.side-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; align-self: stretch; }
+.left-col { grid-column: 1; justify-content: center; align-items: flex-end; }
+.right-col { grid-column: 3; align-items: flex-end; }
+.right-col .comment-slot { flex: 1; align-self: center; }
+.controls-card { width: 100%; max-width: 320px; font-size: 13px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0; align-items: baseline; }
+.keys dt { color: var(--text); white-space: nowrap; }
+.keys dd { margin: 0; color: var(--muted); }
+.keys.help-touch { display: none; }
+@media (pointer: coarse) {
+  .keys.help-touch { display: grid; }
+  .keys.help-keys { display: none; }
+}
+.log-panel { width: 100%; max-width: 290px; }
+
+.comment-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 300px;
+  min-height: 5em;
+  font-size: clamp(18px, 2vw, 34px);
+  pointer-events: none;
+}
+.comment {
+  --blk: hsl(var(--hue), 75%, 62%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35em 0.5em;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.7));
+  animation: comment-pop 2.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.comment .bw { margin-right: 0; }
+.comment .bl { fill: var(--blk); height: 1em; }
+@keyframes comment-pop {
+  0% { opacity: 0; transform: scale(0.5) rotate(-6deg); }
+  8% { opacity: 1; transform: scale(1.12) rotate(2deg); }
+  15% { transform: scale(1) rotate(0); }
+  87% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-14px) scale(0.96); }
+}
+@keyframes comment-fade { 0%, 87% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .comment { animation-name: comment-fade; }
+  .board.pulse { animation: none; }
+}
+
+/* Desktop and tablets: the match is laid out at a natural size (40 px cells) and
+   menu-fx.js scales the whole layout to fit the window, so it never scrolls. */
+@media (min-width: 601px) {
+  body.in-game { height: 100dvh; overflow: hidden; }
+  #gameScreen:not([hidden]) { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { flex: none; }
+  .status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layout { flex: none; margin: auto 0; padding: 12px 16px; align-items: start; }
+  .table-area { justify-content: flex-start; }
+  .table { --cell: 40px; --slot: 74px; }
+  /* North, West and East hands use the same slot size. West and East: a column of four,
+     each piece turned to face them; the timer sits under the score, above the top piece. */
+  .seat-panel.top .hand { grid-template-columns: repeat(4, var(--slot)); }
+  .seat-panel.left .hand, .seat-panel.right .hand { grid-template-columns: var(--slot); flex: none; }
+  .seat-panel.left .mini { transform: rotate(90deg); }
+  .seat-panel.right .mini { transform: rotate(-90deg); }
+  .seat-panel.left .hand-row, .seat-panel.right .hand-row { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .seat-panel.left .cooldown-badge, .seat-panel.right .cooldown-badge { order: -1; }
+  /* East mirrors West: score, timer and pieces on the board side. */
+  .seat-panel.right .player-head { flex-direction: row-reverse; }
+  .seat-panel.right .hand-row { align-items: flex-start; }
+  .player-meta:has(.player-clock:empty) { display: none; }
+  /* Your hand: name, Shuffle (centred), points, timer and rotate on one line; the pieces get the full width. */
+  .seat-panel.mine {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    grid-template-areas: "name shuffle score badge rotate" "meta meta meta meta meta" "afk afk afk afk afk" "hand hand hand hand hand";
+    column-gap: 10px;
+    align-items: center;
+  }
+  .seat-panel.mine .player-head, .seat-panel.mine .hand-row { display: contents; }
+  .seat-panel.mine .player-name { grid-area: name; }
+  .seat-panel.mine .player-score { grid-area: score; }
+  .seat-panel.mine .player-meta { grid-area: meta; }
+  .seat-panel.mine .afk-bar { grid-area: afk; }
+  .seat-panel.mine .hand { grid-area: hand; margin-top: 8px; }
+  .seat-panel.mine .cooldown-badge { grid-area: badge; width: 36px; height: 36px; font-size: 18px; }
+  .seat-panel.mine .rotate-btn { grid-area: rotate; width: 36px; height: 36px; font-size: 20px; }
+  .seat-panel.mine .shuffle-btn { grid-area: shuffle; justify-self: center; width: auto; margin: 0; padding: 4px 16px; }
+  .seat-panel.mine .hand-slot { aspect-ratio: auto; height: 96px; }
+  /* Your hand: nothing under it, and exactly as wide as the board. */
+  .history-bar, .hint { display: none; }
+  .seat-panel.mine { --mini: 20px; }
+  .seat-panel.mine .hand-slot { padding: 6px; }
+}
+.table.no-sides { grid-template-areas: "top" "board" "bottom"; grid-template-columns: auto; }
+
+/* Narrower than the three columns: no controls panel; commentary floats over the board. */
+@media (max-width: 1100px) {
+  .controls-card { display: none; }
+  .side-col { position: fixed; left: 0; right: 0; top: 34%; z-index: 15; align-items: center; pointer-events: none; }
+  .right-col { top: 48%; }
+}
+@media (max-width: 600px) {
+  .table, .table.no-sides { --cell: min(calc((100vw - 52px) / 11), calc((100dvh - 400px) / 11)); }
+  .table.no-sides { grid-template-areas: "top" "board" "bottom"; grid-template-columns: minmax(0, 1fr); }
+  .topbar .controls { gap: 3px; }
+  .topbar .controls button { min-height: 30px; padding: 0 5px; font-size: 9px; }
+  .table.no-sides .seat-panel.top { width: 50%; justify-self: center; }
+  .game-clock { font-size: 18px; }
+}
+@media (max-width: 380px) {
+  .game-clock { font-size: 14px; }
+  .topbar .controls button { padding: 0 4px; font-size: 8px; }
+}
+/* Short windows: a slimmer top bar leaves more height for the board. */
+@media (min-width: 601px) and (max-height: 560px) {
+  .topbar { padding: 4px 12px; gap: 10px; }
+  .game-clock { font-size: 18px; min-width: 0; }
+  .topbar .controls { gap: 5px; }
+  .topbar .controls button { min-height: 26px; padding: 0 8px; font-size: 11px; }
+}
